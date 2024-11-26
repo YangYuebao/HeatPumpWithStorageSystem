@@ -1,0 +1,16 @@
+name = "HeatPumpWithStorageSystem"
+uuid = "b1a62637-3519-4cea-b93e-642fdccb143e"
+authors = ["yangyuebao <812987139@qq.com>"]
+version = "0.1.0"
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CoolProp = "e084ae63-2819-5025-826e-f8e611a84251"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
+
+[compat]
+Revise = "3.6.4"
