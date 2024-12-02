@@ -46,5 +46,11 @@ h3 = CoolProp.PropsSI("H","T",Tc+273.15,"Q",0,refrigerant)
 COP = (h1-h3)/wt + 1
 end
 
-
-
+a=2
+function haha()
+    a=3
+    function testf1(x)
+        return x^2+1+a
+    end
+    return testf1
+end

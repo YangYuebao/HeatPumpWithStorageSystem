@@ -1,6 +1,7 @@
 module HeatPumpWithStorageSystem
 
-using JuMP, HiGHS# 优化接口JuMP，优化器HiGHS
+using JuMP, HiGHS, Ipopt, EAGO# 优化接口JuMP，优化器HiGHS
+using Interpolations
 using CoolProp# 物性库
 
 abstract type EnergySystem end# 计算系统形式

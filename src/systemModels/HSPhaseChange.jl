@@ -2,7 +2,7 @@
 """
 向量循环向后
 """
-function rotateVectorForwardBackward(vec::Vector,k::Int)
+function rotateVectorForward(vec::Vector,k::Int)
     k=k%length(vec)
     return vcat(vec[end-k+1:end],vec[1:end-k])        
 end
@@ -38,8 +38,8 @@ function generateSystemCoff(::HeatPumpStoragePhaseChange;
     Te[workingHours+1:24] .= Tair-dTair                 # 剩余时间蒸发器用外环境温度减换热温差
     Tc[workingHours+1:24] .= Tuse+dTstorageInput+dTuse  # 剩余时间冷凝器用工厂使用温度加上蓄热温差和用热温差
 
-    Tc = rotateVectorForwardBackward(Tc,workingStartHour)
-    Te = rotateVectorForwardBackward(Te,workingStartHour)
+    Tc = rotateVectorForward(Tc,workingStartHour)
+    Te = rotateVectorForward(Te,workingStartHour)
 
     # 计算一天的热泵COP
     if workingHours >24
@@ -63,7 +63,7 @@ function generateSystemCoff(::HeatPumpStoragePhaseChange;
     heatConsumptionPowerList = zeros(24)
     heatConsumptionPowerList[1:workingHours] .= heatConsumptionPower
 
-    heatConsumptionPowerList=rotateVectorForwardBackward(heatConsumptionPowerList,workingStartHour)
+    heatConsumptionPowerList=rotateVectorForward(heatConsumptionPowerList,workingStartHour)
 
     # 生成蓄热量约束
     heatStorageCapacityConstraint = heatStorageCapacity
