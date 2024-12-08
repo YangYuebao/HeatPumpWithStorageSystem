@@ -1,56 +1,93 @@
-
-using Pkg
-Pkg.add("Plots") 
-Pkg.instantiate()
-
-#using Revise
-using Plots
+using Revise
+using Plots, CSV, DataFrames
 using HeatPumpWithStorageSystem
 
-hourlyTariff=ones(24)*0.77
-hourlyTariff[4:6].*=1.6
-hourlyTariff[11:15].*=1.6
-hourlyTariff[16:23].*=0.4
+begin
 
-COP,heatConsumptionPowerList,heatStorageCapacityConstraint,heatpumpPowerConstraint,hourlyTariffList=generateSystemCoff(HeatPumpStoragePhaseChange();refrigerant="water",hourlyTariff=hourlyTariff)
+heatConsumptionPower = 1.0     # 每小时用热功率kW
+heatStorageCapacity = 6.0      # 蓄热量kWh(承压水蓄热)
+TwastCapacity = 0.8
+hourlyTariff = zeros(24)
+hourlyTariff[1:6] .= 0.3340
+hourlyTariff[7:10] .= 0.7393
+hourlyTariff[11:13] .= 1.2360
+hourlyTariff[14:17] .= 0.7393
+hourlyTariff[18:22] .= 1.2360
+hourlyTariff[23:24] .= 0.3340
 
-cost, Plist,heatStorageList=generateAndSolve(HeatPumpStoragePhaseChange(),MinimizeCost();
-    simulationDays=7,
-    COP=COP,
-    heatConsumptionPowerList=heatConsumptionPowerList,
-    heatStorageCapacityConstraint=heatStorageCapacityConstraint,
-    heatpumpPowerConstraint=heatpumpPowerConstraint,
-    hourlyTariffList=hourlyTariffList
+
+
+COPSupplyWaste, COPSupplyAir, COPStorageWaste, COPStorageAir,
+COPSupplyWaste_g, COPSupplyAir_g, COPStorageWaste_g, COPStorageAir_g,
+COPSupplyWaste_h, COPSupplyAir_h, COPStorageWaste_h, COPStorageAir_h,
+heatConsumptionPowerList,
+heatStorageCapacityConstraint,
+heatpumpPowerConstraint,
+hourlyTariffList,
+heatStorageVelocity,
+T4,
+cpqml,
+cpqmh,
+cpm,
+kt,
+TwastCapacity,
+TstorageTankMax = generateSystemCoff(HeatPumpStoragePressedWater();
+    TwastCapacity = TwastCapacity,
+    hourlyTariff = hourlyTariff,
+    heatConsumptionPower=heatConsumptionPower,
+    heatStorageCapacity=heatStorageCapacity
+)
+end
+
+isFesable,
+Pl1List,
+Pl2List,
+Ph1List,
+Ph2List,
+PList,
+TstorageList,
+T1List,
+T3List,
+T4List,
+T5List,
+COPl1,COPl2,COPh1,COPh2,
+costList,
+heatStorageList = generateAndSolve(HeatPumpStoragePressedWater(), MinimizeCost();
+	COPSupplyWaste, COPSupplyAir, COPStorageWaste, COPStorageAir,
+	COPSupplyWaste_g, COPSupplyAir_g, COPStorageWaste_g, COPStorageAir_g,
+	COPSupplyWaste_h, COPSupplyAir_h, COPStorageWaste_h, COPStorageAir_h,
+	heatConsumptionPowerList,  # 用热负载向量
+	heatStorageCapacityConstraint, # 蓄热量约束（最大值）
+	heatpumpPowerConstraint,   # 热泵功率约束（最大值）
+	hourlyTariffList,   # 电价向量
+	heatStorageVelocity,           # 蓄热速率约束
+	T4,
+	cpqml,
+	cpqmh,
+	cpm,
+	kt,
+	TwastCapacity,
+	TstorageTankMax,
 )
 
 
-plt1=plot(1:7*24,Plist,title="Power of Heatpump",xlabel="Hour",ylabel="kW",legend=:none)
-plt2=plot(1:7*24,heatStorageList,title="Heat Storage",xlabel="Hour",ylabel="kWh",legend=:none)
+resultdf=DataFrame(
+    "时间"=>0:23,
+    "低温热泵废热功率Pl1"=>Pl1List,
+    "低温热泵空气源功率Pl2"=>Pl2List,
+    "高温热泵废热功率Ph1"=>Ph1List,
+    "高温热泵空气源功率Ph2"=>Ph2List,
+    "低温热泵废热COP"=>COPl1,
+    "低温热泵空气源COP"=>COPl2,
+    "高温热泵废热COP"=>COPh1,
+    "高温热泵空气源COP"=>COPh2,
+    "热泵总功率"=>PList,
+    "蓄热量"=>heatStorageList,
+    "蓄热罐平均温度T"=>TstorageList,
+    "蓄热温度T1"=>T1List,
+    "低温热泵出水温度T3"=>T3List,
+    "用热温度T4"=>T4List,
+    "供热回水温度T5"=>T5List,
+    "总成本"=>costList,
+)
 
-
-plt3=plot(8:32,Plist[3*24+1:4*24+1],title="Power of Heatpump",xlabel="Hour",ylabel="kW",legend=:none)
-plt4=plot(8:32,heatStorageList[3*24+1:4*24+1],title="Heat Storage",xlabel="Hour",ylabel="kWh",legend=:none)
-plt5=plot(1:24,hourlyTariff,title="Hourly Tariff",xlabel="Hour",ylabel="kW",legend=:none)
-
-
-begin
-Te=70
-Tc=180
-refrigerant="water"
-h1 = CoolProp.PropsSI("H","T",Te+273.15,"Q",1,refrigerant)
-s1 = CoolProp.PropsSI("S","T",Te+273.15,"Q",1,refrigerant)
-p2 = CoolProp.PropsSI("P","T",Tc+273.15,"Q",1,refrigerant)
-h2 = CoolProp.PropsSI("H","S",s1,"P",p2,refrigerant)
-wt = (h2-h1)/0.7
-h3 = CoolProp.PropsSI("H","T",Tc+273.15,"Q",0,refrigerant)
-COP = (h1-h3)/wt + 1
-end
-
-a=2
-function haha()
-    a=3
-    function testf1(x)
-        return x^2+1+a
-    end
-    return testf1
-end
