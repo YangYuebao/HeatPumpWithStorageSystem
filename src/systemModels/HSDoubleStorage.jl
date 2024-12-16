@@ -1,14 +1,13 @@
-
 """输入一定系统结构和工作参数,返回系统计算需要用到的各种向量"""
-function generateSystemCoff(::PressedWaterHighStorage;
-	refrigerantHeatSupply::String = "water",  # 供热循环使用制冷剂
-	refrigerantHeatStorage::String = "water", # 蓄热使用制冷剂
+function generateSystemCoff(::PressedWaterDoubleStorage;
+	refrigerantLow::String = "water",  # 供热循环使用制冷剂
+	refrigerantHigh::String = "water", # 蓄热使用制冷剂
 	eta_s::Real = 0.7,                        # 压缩机绝热效率
 	Twastein::Real = 80.0,                    # 废气进入温度
 	Twasteout::Real = 40.0,                   # 废气排出温度
 	dTwaste::Real = 5.0,                      # 废气温度-蒸发器温度
-	TwastCapacity::Real = 2,                  # 废热容量是工厂用热量的倍数
-	Tair::Real = 25.0,                        # 外部环境温度
+	TwastCapacity::Real = 0.8,                # 废热容量是工厂用热量的倍数
+	Tair::Vector = fill(25.0,24),             # 外部环境温度
 	dTair::Real = 5.0,                        # 外部环境温度-蒸发器温度
 	Tuse::Real = 120.0,                       # 工厂使用温度
 	dTuse::Real = 5.0,                        # 冷凝器温度-工厂使用温度
@@ -16,19 +15,20 @@ function generateSystemCoff(::PressedWaterHighStorage;
 	dTuseStandard::Real = 5.0,                # 工厂用热标准温差
 	dTstorageStandard::Real = 5.0,            # 工厂蓄热标准温差
 	dTstorageOutputStandard::Real = 5.0,      # 工厂蓄热释放标准温差
-	TstorageTankMax::Real = 200.0,            # 蓄热罐的最高温度
-	heatConsumptionPower::Real = 10000.0,     # 每小时用热功率kW
-	heatStorageCapacity::Real = 20000.0,      # 蓄热量kWh(承压水蓄热)
+	TstorageTankMax::Real = 220.0,            # 蓄热罐的最高温度
+	heatConsumptionPower::Real = 1.0,         # 每小时用热功率kW
+	heatStorageCapacity::Real = 6.0,          # 蓄热量kWh(承压水蓄热)
 	heatStorageOutEfficiency::Real = 0.0001,  # 蓄热衰减系数K
 	maxheatStorageInputHour::Real = 4,        # 蓄热充满时长
-	kt::Real = 0.5,                           # 蓄热 \Delta T_2 / \Delta T_1
 	TChangeToElec::Real = 140,                # 热泵蓄热温度上限
-	Min_dT_TeTc::Real = 30.0,  				  # 热泵工作最小的蒸发器、冷凝器温差	
-	workingHours::Int = 16,                   # 每日工作小时数
-	workingStartHour::Int = 0,                # 生产开始时间
-	PheatPumpMax::Real = 10000.0,             # 热泵最大功率kW
+	Min_dT_TeTc::Real = 30.0,  				  # 热泵工作最小的蒸发器、冷凝器温差
+    MaxCOP::Real = 21.0,                      # 热泵COP上限
+	workingStartHour::Int = 8,                # 生产开始时间
+    workingHours::Int = 16,                   # 每日工作小时数
+	PheatPumpMax::Real = 1.0,                 # 热泵最大功率kW
 	hourlyTariff::Vector = fill(0.7, 24),     # 电价向量
 	COPInterpolateGap = 0.1,  				  # COP插值时步长
+    kt::Real = 0.5,                           # 蓄热 \Delta T_2 / \Delta T_1
 )
 	temp = workingHours
 	workingHours = workingHours % 24
@@ -42,7 +42,7 @@ function generateSystemCoff(::PressedWaterHighStorage;
 
 	# 计算一天的热泵蒸发冷凝温度
 	TeRecycle = (Twastein + Twasteout) / 2 - dTwaste    # 余热回收蒸发器温度
-	TeAirSource = Tair - dTair                      # 空气源蒸发器温度
+	TeAirSource = Tair .- dTair                      # 空气源蒸发器温度
 
 	# 分别生成供热废热源、供热空气源、蓄热废热源、蓄热空气源4个不同循环的COP函数，一阶导数和二阶导数
 	function COPTe_Tc(Te, Tc, refrigerant)
@@ -59,7 +59,7 @@ function generateSystemCoff(::PressedWaterHighStorage;
 
 	# 低温供热热泵-废热源
 	Titp = TeRecycle+Min_dT_TeTc-dTuse:COPInterpolateGap:TChangeToElec
-	COPSupplyWasteItp = [COPTe_Tc(TeRecycle, T3 + dTuse, refrigerantHeatSupply) for T3 in Titp]
+	COPSupplyWasteItp = [COPTe_Tc(TeRecycle, T3 + dTuse, refrigerantLow) for T3 in Titp]
 	itpCOPSupplyWaste = interpolate(COPSupplyWasteItp, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOPSupplyWaste = scale(itpCOPSupplyWaste, Titp)
 	COPSupplyWaste(T3) = TeRecycle + Min_dT_TeTc - dTuse < T3 < TChangeToElec ? sitpCOPSupplyWaste(T3) : 1.0
@@ -68,7 +68,7 @@ function generateSystemCoff(::PressedWaterHighStorage;
 
 	# 低温供热热泵-空气源
 	Titp = TeAirSource+Min_dT_TeTc-dTuse:COPInterpolateGap:TChangeToElec
-	COPSupplyAirItp = [COPTe_Tc(TeAirSource, T3 + dTuse, refrigerantHeatSupply) for T3 in Titp]
+	COPSupplyAirItp = [COPTe_Tc(TeAirSource, T3 + dTuse, refrigerantLow) for T3 in Titp]
 	itpCOPSupplyAir = interpolate(COPSupplyAirItp, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOPSupplyAir = scale(itpCOPSupplyAir, Titp)
 	COPSupplyAir(T3) = TeAirSource + Min_dT_TeTc - dTuse < T3  < TChangeToElec ? sitpCOPSupplyAir(T3) : 1.0
@@ -78,7 +78,7 @@ function generateSystemCoff(::PressedWaterHighStorage;
 
 	# 高温蓄热热泵-废热源
 	Titp = TeRecycle+Min_dT_TeTc-dTstorageInput:COPInterpolateGap:TChangeToElec
-	COPStorageWasteItp = [COPTe_Tc(TeRecycle, T1 + dTstorageInput, refrigerantHeatStorage) for T1 in Titp]
+	COPStorageWasteItp = [COPTe_Tc(TeRecycle, T1 + dTstorageInput, refrigerantHigh) for T1 in Titp]
 	itpCOPStorageWaste = interpolate(COPStorageWasteItp, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOPStorageWaste = scale(itpCOPStorageWaste, Titp)
 	COPStorageWaste(T1) = TeRecycle + Min_dT_TeTc - dTstorageInput < T1 < TChangeToElec ? sitpCOPStorageWaste(T1) : 1.0
@@ -88,7 +88,7 @@ function generateSystemCoff(::PressedWaterHighStorage;
 
 	# 高温蓄热热泵-空气源
 	Titp = TeAirSource+Min_dT_TeTc-dTstorageInput:COPInterpolateGap:TChangeToElec
-	COPStorageAirItp = [COPTe_Tc(TeAirSource, T1 + dTuse, refrigerantHeatStorage) for T1 in Titp]
+	COPStorageAirItp = [COPTe_Tc(TeAirSource, T1 + dTuse, refrigerantHigh) for T1 in Titp]
 	itpCOPStorageAir = interpolate(COPStorageAirItp, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOPStorageAir = scale(itpCOPStorageAir, Titp)
 	COPStorageAir(T1) = TeAirSource + Min_dT_TeTc - dTstorageInput < T1  < TChangeToElec ? sitpCOPStorageAir(T1) : 1.0
@@ -157,7 +157,7 @@ function generateSystemCoff(::PressedWaterHighStorage;
 end
 
 """给定系统参数，求解系统成本，返回成本、热泵功率向量、蓄热量向量"""
-function generateAndSolve(::PressedWaterHighStorage, ::MinimizeCost;
+function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	COPSupplyWaste::Function,
 	COPSupplyAir::Function,
 	COPStorageWaste::Function,
@@ -256,4 +256,3 @@ function generateAndSolve(::PressedWaterHighStorage, ::MinimizeCost;
 
 	return isFesable,Pl1List, Pl2List, Ph1List, Ph2List, PList,TstorageList,T1List,T3List,T4List,T5List,COPl1,COPl2,COPh1,COPh2,heatConsumptionPowerList, costList, heatStorageList
 end
-

@@ -31,7 +31,7 @@ cpqmh,
 cpm,
 kt,
 TwastCapacity,
-TstorageTankMax = generateSystemCoff(HeatPumpStoragePressedWater();
+TstorageTankMax = generateSystemCoff(PressedWaterHighStorage();
     TwastCapacity = TwastCapacity,
     hourlyTariff = hourlyTariff,
     heatConsumptionPower=heatConsumptionPower,
@@ -52,7 +52,7 @@ T4List,
 T5List,
 COPl1,COPl2,COPh1,COPh2,
 costList,
-heatStorageList = generateAndSolve(HeatPumpStoragePressedWater(), MinimizeCost();
+heatStorageList = generateAndSolve(PressedWaterHighStorage(), MinimizeCost();
 	COPSupplyWaste, COPSupplyAir, COPStorageWaste, COPStorageAir,
 	COPSupplyWaste_g, COPSupplyAir_g, COPStorageWaste_g, COPStorageAir_g,
 	COPSupplyWaste_h, COPSupplyAir_h, COPStorageWaste_h, COPStorageAir_h,
