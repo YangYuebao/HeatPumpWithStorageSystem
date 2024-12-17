@@ -1,7 +1,86 @@
-"""输入一定系统结构和工作参数,返回系统计算需要用到的各种向量"""
+
+
+"""
+基于物性的COP计算
+"""
+function COPTe_Tc(Te, Tc, eta_s, refrigerant)
+	h1 = CoolProp.PropsSI("H", "T", Te + 273.15, "Q", 1, refrigerant)
+	s1 = CoolProp.PropsSI("S", "T", Te + 273.15, "Q", 1, refrigerant)
+	p2 = CoolProp.PropsSI("P", "T", Tc + 273.15, "Q", 1, refrigerant)
+	h2 = CoolProp.PropsSI("H", "S", s1, "P", p2, refrigerant)
+	wt = (h2 - h1) / eta_s  # 理论压缩功等于绝热压缩功除以绝热效率
+	h3 = CoolProp.PropsSI("H", "T", Tc + 273.15, "Q", 0, refrigerant)
+	return (h1 - h3) / wt + 1 # 制热循环效率
+end
+
+
+"""
+生成COP的函数、COP的梯度和海森矩阵
+"""
+function getCOP_g_h(
+	minTe::Real,	# 蒸发温度下限
+	maxTe::Real,	# 蒸发温度上限
+	minTc::Real,	# 冷凝温度下限
+	maxTc::Real,	# 冷凝温度上限
+	refrigerant::String,	# 工质
+	maxCOP::Real,			# 最大COP
+	TcChangeToElec::Real,	# 冷凝温度转换到电热的阈值
+	eta_s::Real,			# 绝热效率
+	dT::Real				# 插值步长
+)
+	# 生成基于物性的COP计算函数
+	# 然后进行样条插值，并计算梯度和海森矩阵
+	TeList=minTe:dT:maxTe
+	TcList=minTc:dT:maxTc
+	
+	COPMatrix = zeros(length(TeList), length(TcList))
+
+	Threads.@threads for (j,Tc) in enumerate(TcList)
+		for (i,Te) in enumerate(TeList)
+			COPMatrix[i,j] = COPTe_Tc(Te, Tc, eta_s, refrigerant)
+		end
+	end
+	
+	itpCOP = interpolate(COPMatrix, BSpline(Cubic(Line(OnGrid()))))
+	sitpCOP = scale(itpCOP, TeList,TcList)
+
+	function COPfunction(Te,Tc)
+		COP=sitpCOP(Te,Tc)
+		if Tc>TcChangeToElec
+			return 1.0
+		end
+		if COP > maxCOP || COP <=0
+			return maxCOP
+		end
+		return COP
+	end
+
+	function COPfunction_g(Te,Tc)
+		if (Tc>TcChangeToElec) || (COP > maxCOP) || (COP <=0)
+			return zeros(2)
+		end
+		return Interpolations.gradient(sitpCOPSupplyWaste, Te,Tc)
+	end
+
+	function COPfunction_h(Te,Tc)
+		if (Tc>TcChangeToElec) || (COP > maxCOP) || (COP <=0)
+			return zeros(2,2)
+		end
+		return Interpolations.hessian(sitpCOPSupplyWaste, Te,Tc)
+	end
+
+	return COPfunction, COPfunction_g, COPfunction_h
+end
+
+
+"""
+输入一定系统结构和工作参数,返回系统计算需要用到的各种向量
+"""
 function generateSystemCoff(::PressedWaterDoubleStorage;
-	refrigerantLow::String = "water",  # 供热循环使用制冷剂
-	refrigerantHigh::String = "water", # 蓄热使用制冷剂
+	refrigerantLow::String = "R134a",  		  # 供热循环使用制冷剂
+	refrigerantHigh::String = "water", 		  # 蓄热使用制冷剂
+	maxTcHigh::Real = 180.0,				  # 高温热泵冷凝器温度上限
+	maxTcLow::Real = 80.0,					  # 低温热泵冷凝器温度上限
 	eta_s::Real = 0.7,                        # 压缩机绝热效率
 	Twastein::Real = 80.0,                    # 废气进入温度
 	Twasteout::Real = 40.0,                   # 废气排出温度
@@ -20,9 +99,7 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	heatStorageCapacity::Real = 6.0,          # 蓄热量kWh(承压水蓄热)
 	heatStorageOutEfficiency::Real = 0.0001,  # 蓄热衰减系数K
 	maxheatStorageInputHour::Real = 4,        # 蓄热充满时长
-	TChangeToElec::Real = 140,                # 热泵蓄热温度上限
-	Min_dT_TeTc::Real = 30.0,  				  # 热泵工作最小的蒸发器、冷凝器温差
-    MaxCOP::Real = 21.0,                      # 热泵COP上限
+    maxCOP::Real = 21.0,                      # 热泵COP上限
 	workingStartHour::Int = 8,                # 生产开始时间
     workingHours::Int = 16,                   # 每日工作小时数
 	PheatPumpMax::Real = 1.0,                 # 热泵最大功率kW
@@ -43,59 +120,12 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	# 计算一天的热泵蒸发冷凝温度
 	TeRecycle = (Twastein + Twasteout) / 2 - dTwaste    # 余热回收蒸发器温度
 	TeAirSource = Tair .- dTair                      # 空气源蒸发器温度
+	minTe=minimum(TeAirSource)
+	maxTe=maximum(TeAirSource)
 
-	# 分别生成供热废热源、供热空气源、蓄热废热源、蓄热空气源4个不同循环的COP函数，一阶导数和二阶导数
-	function COPTe_Tc(Te, Tc, refrigerant)
-		h1 = CoolProp.PropsSI("H", "T", Te + 273.15, "Q", 1, refrigerant)
-		s1 = CoolProp.PropsSI("S", "T", Te + 273.15, "Q", 1, refrigerant)
-		p2 = CoolProp.PropsSI("P", "T", Tc + 273.15, "Q", 1, refrigerant)
-		h2 = CoolProp.PropsSI("H", "S", s1, "P", p2, refrigerant)
-		wt = (h2 - h1) / eta_s  # 理论压缩功等于绝热压缩功除以绝热效率
-		h3 = CoolProp.PropsSI("H", "T", Tc + 273.15, "Q", 0, refrigerant)
-		return (h1 - h3) / wt + 1 # 制热循环效率
-	end
+	COPh,COPh_g,COPh_h=getCOP_g_h(minTe,maxTe,Tair,maxTcHigh,refrigerantHigh,maxCOP,TcChangeToElec,eta_s,COPInterpolateGap)
 
-	# 供热废热源、供热空气源、蓄热废热源、蓄热空气源4个不同循环的COP函数和各自的一阶导数、二阶导数
-
-	# 低温供热热泵-废热源
-	Titp = TeRecycle+Min_dT_TeTc-dTuse:COPInterpolateGap:TChangeToElec
-	COPSupplyWasteItp = [COPTe_Tc(TeRecycle, T3 + dTuse, refrigerantLow) for T3 in Titp]
-	itpCOPSupplyWaste = interpolate(COPSupplyWasteItp, BSpline(Cubic(Line(OnGrid()))))
-	sitpCOPSupplyWaste = scale(itpCOPSupplyWaste, Titp)
-	COPSupplyWaste(T3) = TeRecycle + Min_dT_TeTc - dTuse < T3 < TChangeToElec ? sitpCOPSupplyWaste(T3) : 1.0
-	COPSupplyWaste_g(T3) = TeRecycle + Min_dT_TeTc - dTuse < T3 < TChangeToElec ? Interpolations.gradient(sitpCOPSupplyWaste, T3)[1] : 0.0
-	COPSupplyWaste_h(T3) = TeRecycle + Min_dT_TeTc - dTuse < T3 < TChangeToElec ? Interpolations.hessian(sitpCOPSupplyWaste, T3)[1] : 0.0
-
-	# 低温供热热泵-空气源
-	Titp = TeAirSource+Min_dT_TeTc-dTuse:COPInterpolateGap:TChangeToElec
-	COPSupplyAirItp = [COPTe_Tc(TeAirSource, T3 + dTuse, refrigerantLow) for T3 in Titp]
-	itpCOPSupplyAir = interpolate(COPSupplyAirItp, BSpline(Cubic(Line(OnGrid()))))
-	sitpCOPSupplyAir = scale(itpCOPSupplyAir, Titp)
-	COPSupplyAir(T3) = TeAirSource + Min_dT_TeTc - dTuse < T3  < TChangeToElec ? sitpCOPSupplyAir(T3) : 1.0
-	COPSupplyAir_g(T3) = TeAirSource + Min_dT_TeTc - dTuse < T3  < TChangeToElec ? Interpolations.gradient(sitpCOPSupplyAir, T3)[1] : 0.0
-	COPSupplyAir_h(T3) = TeAirSource + Min_dT_TeTc - dTuse < T3  < TChangeToElec ? Interpolations.hessian(sitpCOPSupplyAir, T3)[1] : 0.0
-
-
-	# 高温蓄热热泵-废热源
-	Titp = TeRecycle+Min_dT_TeTc-dTstorageInput:COPInterpolateGap:TChangeToElec
-	COPStorageWasteItp = [COPTe_Tc(TeRecycle, T1 + dTstorageInput, refrigerantHigh) for T1 in Titp]
-	itpCOPStorageWaste = interpolate(COPStorageWasteItp, BSpline(Cubic(Line(OnGrid()))))
-	sitpCOPStorageWaste = scale(itpCOPStorageWaste, Titp)
-	COPStorageWaste(T1) = TeRecycle + Min_dT_TeTc - dTstorageInput < T1 < TChangeToElec ? sitpCOPStorageWaste(T1) : 1.0
-	COPStorageWaste_g(T1) = TeRecycle + Min_dT_TeTc - dTstorageInput < T1  < TChangeToElec ? Interpolations.gradient(sitpCOPStorageWaste, T1)[1] : 0.0
-	COPStorageWaste_h(T1) = TeRecycle + Min_dT_TeTc - dTstorageInput < T1  < TChangeToElec ? Interpolations.hessian(sitpCOPStorageWaste, T1)[1] : 0.0
-
-
-	# 高温蓄热热泵-空气源
-	Titp = TeAirSource+Min_dT_TeTc-dTstorageInput:COPInterpolateGap:TChangeToElec
-	COPStorageAirItp = [COPTe_Tc(TeAirSource, T1 + dTuse, refrigerantHigh) for T1 in Titp]
-	itpCOPStorageAir = interpolate(COPStorageAirItp, BSpline(Cubic(Line(OnGrid()))))
-	sitpCOPStorageAir = scale(itpCOPStorageAir, Titp)
-	COPStorageAir(T1) = TeAirSource + Min_dT_TeTc - dTstorageInput < T1  < TChangeToElec ? sitpCOPStorageAir(T1) : 1.0
-	COPStorageAir_g(T1) = TeAirSource + Min_dT_TeTc - dTstorageInput < T1  < TChangeToElec ? Interpolations.gradient(sitpCOPStorageAir, T1)[1] : 0.0
-	COPStorageAir_h(T1) = TeAirSource + Min_dT_TeTc - dTstorageInput < T1 < TChangeToElec ? Interpolations.hessian(sitpCOPStorageAir, T1)[1] : 0.0
-
-
+	COPl,COPl_g,COPl_h=getCOP_g_h(minTe,maxTe,Tair,maxTcLow,refrigerantLow,maxCOP,TcChangeToElec,eta_s,COPInterpolateGap)
 
 	# 生成用热负载向量
 	heatConsumptionPowerList = zeros(24)
