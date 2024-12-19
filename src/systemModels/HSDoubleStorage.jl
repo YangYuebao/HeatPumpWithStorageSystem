@@ -188,73 +188,75 @@ end
 
 """给定系统参数，求解系统成本，返回成本、热泵功率向量、蓄热量向量"""
 function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
-	COPSupplyWaste::Function,
-	COPSupplyAir::Function,
-	COPStorageWaste::Function,
-	COPStorageAir::Function,
-	COPSupplyWaste_g::Function,
-	COPSupplyAir_g::Function,
-	COPStorageWaste_g::Function,
-	COPStorageAir_g::Function,
-	COPSupplyWaste_h::Function,
-	COPSupplyAir_h::Function,
-	COPStorageWaste_h::Function,
-	COPStorageAir_h::Function,
-	heatConsumptionPowerList::Vector{Float64},  # 用热负载向量
+	COPh::Function,
+	COPh_g::Function,
+	COPh_h::Function,
+	COPl::Function,
+	COPl_g::Function,
+	COPl_h::Function,
+	
+	# 总循环参数
+	T13::Vector,	# 供热蒸汽温度
+	T9::Vector,		# 蒸汽冷却循环水回水温度
+	qm::Real,		# 总循环水质量流量
+	
+	# 低温热泵参数
+	cpqm_l::Real,	# 低温热泵换热工质循环cp*qm
+	k1::Real,		# 低温热泵热汇换热温差比ΔT_2/ΔT_1
+	dTe_l1::Real,	# 低温热泵蒸发器与废热源的换热温差
+	dTe_l2::Real,	# 低温热泵蒸发器与空气源的换热温差
+	dTc_l::Real,	# 低温热泵冷凝器与低温回路的换热温差
+	Qhrecycle::Vector,# 废热源最大回收功率
+
+	# 低温蓄热参数
+	cpm_l::Real,	# 低温蓄热罐热容
+	Tair::Real,		# 环境温度
+	cpqm_cw::Real,	# 循环水液态cp*qm cycled water
+	KTloss_l::Real,	# 低温蓄热罐热损失系数，是个很小的数
+
+	# 高温热泵参数
+	cpqm_m::Real,	# 高温热泵蒸发器侧循环工质cp*qm
+	k2::Real,		# 高温热泵热源换热温差比
+	dTe_h::Real,	# 高温热泵蒸发器与蓄热罐热源的换热温差
+	k3::Real,		# 高温热泵热汇换热温差比
+	dTc_h1::Real,	# 高温热泵冷凝器与高温蓄热罐侧循环工质的换热温差
+	dTc_h2::Real,	# 高温热泵冷凝器与用热支流qm4+qm1的换热温差
+	cpqm_h::Real,	# 高温热泵换热工质循环cp*qm
+	cp_cs::Real,	# 蒸汽定压热容 cp cycled steam
+
+	# 高温蓄热参数
+	cpm_h::Real,	# 高温蓄热热容
+	KTloss_h::Real,	# 高温蓄热罐热损失系数，是个很小的数
+	k4::Real,		# 直接从高温蓄热取热的支路的温差比
+	k5::Real,		# 从高温罐取热后还需要加热的支路的温差比
+
+	# 设备运行约束
+	TstorageTankMax::Real,						# 蓄热罐的最高温度
+	heatStorageVelocity::Real,           		# 蓄热速率约束
 	heatStorageCapacityConstraint::Float64, 	# 蓄热量约束（最大值）
 	heatpumpPowerConstraint::Float64,   		# 热泵功率约束（最大值）
+	
+	# 其它参数
 	hourlyTariffList::Vector{Float64},   		# 电价向量
-	heatStorageVelocity::Real,           		# 蓄热速率约束
-	T4::Real,
-	cpqml::Real,
-	cpqmh::Real,
-	cpm::Real,
-	kt::Real,
-	TwastCapacity::Real,
-	TstorageTankMax::Real,
-	heatStorageOutEfficiency::Real,				# 蓄热自损失
+	heatConsumptionPowerList::Vector{Float64},  # 用热负载向量
 )
 	model = Model(Ipopt.Optimizer)
 	set_silent(model)
 
-	@operator(model, opCOPStorageWaste, 1, COPStorageWaste, COPStorageWaste_g, COPStorageWaste_h)
-	@operator(model, opCOPStorageAir, 1, COPStorageAir, COPStorageAir_g, COPStorageAir_h)
-	@operator(model, opCOPSupplyWaste, 1, COPSupplyWaste, COPSupplyWaste_g, COPSupplyWaste_h)
-	@operator(model, opCOPSupplyAir, 1, COPSupplyAir, COPSupplyAir_g, COPSupplyAir_h)
-
+	@operator(model, opCOPl, 2, COPl, COPl_g, COPl_h)
+	@operator(model, opCOPh, 2, COPh, COPh_g, COPh_h)
 	# 建立热泵功率变量与储热量变量，直接约束了变量的范围
 	m = 24
-	@variable(model, 0 <= heatPumpPowerl1[1:m] <= heatpumpPowerConstraint)  # 供热回收
-	@variable(model, 0 <= heatPumpPowerl2[1:m] <= heatpumpPowerConstraint)  # 供热空气
-	@variable(model, 0 <= heatPumpPowerh1[1:m] <= heatpumpPowerConstraint)  # 蓄热回收
-	@variable(model, 0 <= heatPumpPowerh2[1:m] <= heatpumpPowerConstraint)  # 蓄热空气
-	@variable(model, T4 <= T[1:m] <= TstorageTankMax,start=T4)
-	@variable(model, T4 <= T1[1:m] <= TstorageTankMax,start=T4)
-	@variable(model, 0 <= T3[1:m] <= T4,start=T4)
-	@variable(model, T4-20 <= T5[1:m] <= T4)
-	@variable(model, 0 <= heatStorage[1:m] <= heatStorageCapacityConstraint)
+	#=
+		@variable(model, 0 <= heatPumpPowerl1[1:m] <= heatpumpPowerConstraint)  # 供热回收
+		@constraint(model, [i = 1:m], cpqmh * 2 * kt / (1 + kt) * (T1[i] - T[i]) <= heatpumpPowerConstraint)
+	=#
+	@variable(model,T10[i=1:m]>=Tair)
+	@variable(model,T11[i=1:m]>=Tair)
+	@variable(model,T12[i=1:m]>=Tair)
+	@variable(model,T14[i=1:m]>=Tair)
 
-	# T5
-	@constraint(model, [i = 1:m], heatConsumptionPowerList[i] == cpqml * (T4 - T5[i]))
-	@constraint(model, [i = 1:m], T[i] <= T1[i])
-	@constraint(model, [i = 1:m], T4 <= T[i])
-	@constraint(model, [i = 1:m], T5[i] <= T3[i])
-	#@constraint(model, [i = 1:m], heatStorage[i] == cpm*(T[i]-T4))
-
-	# 蓄热功率上限
-	@constraint(model, [i = 1:m], cpqmh * 2 * kt / (1 + kt) * (T1[i] - T[i]) <= heatStorageVelocity)
-	#@constraint(model,  heatStorage[1]-heatStorage[m] <= heatStorageVelocity)
-
-	# 热平衡
-	@constraint(model, [i = 1:m-1], cpm * (T[i+1] - T[i]) == cpqmh * 2 * kt / (1 + kt) * (T1[i] - T[i]) - cpqml * (T4 - T3[i]) - heatStorageOutEfficiency * cpm * (T[i+1]-T4)) 
-	@constraint(model, cpm * (T[1] - T[m]) == cpqmh * 2 * kt / (1 + kt) * (T1[m] - T[m]) - cpqml * (T4 - T3[m]) - heatStorageOutEfficiency * cpm * (T[1]-T4))
-
-	@constraint(model, [i = 1:m], opCOPSupplyWaste(T3[i]) * heatPumpPowerl1[i] + opCOPSupplyAir(T3[i]) * heatPumpPowerl2[i] == cpqml * (T3[i] - T5[i]))
-	@constraint(model, [i = 1:m], opCOPStorageWaste(T1[i]) * heatPumpPowerh1[i] + opCOPStorageAir(T1[i]) * heatPumpPowerh2[i] == cpqmh * 2 * kt / (1 + kt) * (T1[i] - T[i]))
-	@constraint(model, [i = 1:m], opCOPSupplyWaste(T3[i]) * heatPumpPowerl1[i] + opCOPStorageWaste(T1[i]) * heatPumpPowerh1[i] <= heatConsumptionPowerList[i] * TwastCapacity)
-
-	# 蓄热速率约束
-	@constraint(model, [i = 1:m], cpqmh * 2 * kt / (1 + kt) * (T1[i] - T[i]) <= heatpumpPowerConstraint)
+	@constraint(model,[i=1:m],qqq)
 
 	# 目标函数
 	@objective(model, Min, sum(hourlyTariffList[i] * (heatPumpPowerl1[i] + heatPumpPowerl2[i] + heatPumpPowerh1[i] + heatPumpPowerh2[i]) for i ∈ 1:m))
