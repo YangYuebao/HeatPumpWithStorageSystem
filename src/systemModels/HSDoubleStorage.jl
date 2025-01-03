@@ -38,19 +38,27 @@ function getCOP_g_h(
 	TeList = minTe:dT:maxTe
 	TcList = minTc:dT:maxTc
 
-	iStart = Int((minTe - 10) * 10 + 1)
-	iEnd = Int((maxTe - 10) * 10 + 1)
-	jStart = Int((minTc - 20) * 10 + 1)
-	jEnd = Int((maxTc - 20) * 10 + 1)
-	step = Int(dT * 10)
+	step = round(Int,dT * 10)
 
 	#Threads.@threads for (j,Tc) in enumerate(TcList)
 	if refrigerant in ["R134a"]
 		dfTemp = CSV.read(joinpath(pwd(), "src", "refrigerantPropertys", "R134a_10_80_20_100_0.1.csv"), DataFrame)
+		iStart = round(Int,(minTe - 10) * 10 + 1)
+		iEnd = round(Int,(maxTe - 10) * 10 + 1)
+		jStart = round(Int,(minTc - 20) * 10 + 1)
+		jEnd = round(Int,(maxTc - 20) * 10 + 1)
 	elseif refrigerant in ["water", "Water"]
 		dfTemp = CSV.read(joinpath(pwd(), "src", "refrigerantPropertys", "water_70_190_70_190_0.1.csv"), DataFrame)
+		iStart = round(Int,(minTe - 70) * 10 + 1)
+		iEnd = round(Int,(maxTe - 70) * 10 + 1)
+		jStart = round(Int,(minTc - 70) * 10 + 1)
+		jEnd = round(Int,(maxTc - 70) * 10 + 1)
+		@info any(isnan.(dfTemp))
 	end
-	COPMatrix = Matrix(dfTemp[iStart:step:iEnd, jStart:step:jEnd])*eta_s+1.0
+	#println(minTe," ", maxTe," ", minTc," ", maxTc)
+	#println(size(dfTemp))
+	#println(iStart," ", iEnd," ", jStart," ", jEnd," ", step)
+	COPMatrix = Matrix(dfTemp[iStart:step:iEnd, jStart:step:jEnd])*eta_s .+ 1.0
 
 	itpCOP = interpolate(COPMatrix, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOP = scale(itpCOP, TeList, TcList)
@@ -67,27 +75,22 @@ function getCOP_g_h(
 	end
 
 	function COPfunction_g(Te, Tc)
+		COP = sitpCOP(Te, Tc)
 		if (Tc > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
 			return zeros(2)
 		end
-		return Interpolations.gradient(sitpCOPSupplyWaste, Te, Tc)
+		return Interpolations.gradient(sitpCOP, Te, Tc)
 	end
 
 	function COPfunction_h(Te, Tc)
+		COP = sitpCOP(Te, Tc)
 		if (Tc > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
 			return zeros(2, 2)
 		end
-		return Interpolations.hessian(sitpCOPSupplyWaste, Te, Tc)
+		return Interpolations.hessian(sitpCOP, Te, Tc)
 	end
 
 	return COPfunction, COPfunction_g, COPfunction_h
-end
-
-"""
-计算低温闪蒸需要的焓
-"""
-function getLatenHeat()
-
 end
 
 """
@@ -108,7 +111,7 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	refrigerantLow::String = "R134a",    		# 供热循环使用制冷剂
 	refrigerantHigh::String = "water",   		# 蓄热使用制冷剂
 	maxTcHigh::Real = 180.0,  					# 高温热泵冷凝器温度上限
-	maxTcLow::Real = 80.0,  					# 低温热泵冷凝器温度上限
+	maxTcLow::Real = 90.0,  					# 低温热泵冷凝器温度上限
 	eta_s::Real = 0.7,                        	# 压缩机绝热效率
 	Twastein::Real = 80.0,                    	# 废气进入温度
 	Twasteout::Real = 40.0,                   	# 废气排出温度
@@ -134,6 +137,7 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	PheatPumpMax::Real = 1.0,                 	# 热泵最大功率kW
 	hourlyTariff::Vector = fill(0.7, 24),     	# 电价向量
 	COPInterpolateGap = 0.1,    				# COP插值时步长
+	Te_hStandard::Real =80.0					# 高温热泵蒸发器温度标准值
 )
 	temp = workingHours
 	workingHours = workingHours % 24
@@ -149,13 +153,18 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	TWaste = (Twastein + Twasteout) / 2 		# 余热回收温度
 	TeAirSource = Tair .- dTair                	# 空气源蒸发器温度
 	minTel = minimum(TeAirSource)
-	maxTel = max(TeRecycle, TeAirSource...)
+	maxTel = max(TWaste-dT_l, TeAirSource...)
 	minTcl = minimum(Tair)
 
 	minTeh = maxTcLow-dTlc_he
 	minTch = minTeh + 0.1
 
+	
+	#println("minTeh:", minTeh, " maxTeh:", maxTeh)
+	#println("minTch:", minTch, " maxTch:", maxTcHigh)
 	COPh, COPh_g, COPh_h = getCOP_g_h(minTeh, maxTeh, minTch, maxTcHigh, refrigerantHigh, maxCOP, eta_s, COPInterpolateGap)
+	#println("minTel:", minTel, " maxTel:", maxTel)
+	#println("minTcl:", minTcl, " maxTcl:", maxTcLow)
 	COPl, COPl_g, COPl_h = getCOP_g_h(minTel, maxTel, minTcl, maxTcLow, refrigerantLow, maxCOP, eta_s, COPInterpolateGap)
 
 	# 生成总循环参数:T13::Real,T9::Real,qm::Vector
@@ -174,7 +183,7 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	# 生成低温热泵参数：cpqm_l,k1,dTe_l1,dTe_l2,dTc_l,QhRecycle
 	cpm_l = cpm_h = heatStorageCapacity * heatConsumptionPower / (TstorageTankMax - Tuse)
 	cpqm_h = heatStorageCapacity * heatConsumptionPower / (maxheatStorageInputHour * dTstorageInput)
-	cpqm_m = heatStorageCapacity * heatConsumptionPower / (COPh(Te_hStandard, Tc_hStandard)) / (maxheatStorageInputHour * dTstorageInput)
+	cpqm_m = heatStorageCapacity * heatConsumptionPower / (COPh(Te_hStandard, Tuse+dT_h)) / (maxheatStorageInputHour * dTstorageInput)
 	cpqm_l = cpqm_m
 	k1 = k2 = k3 = k4 = k5 = k6 = k7 = k8 = kt
 	dTc_l = dTe_l1 = dTe_l2 = dT_l
@@ -198,19 +207,19 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	hourlyTariffList = hourlyTariff
 
 
-	return COPh, COPh_g, COPh_h,
+	return (COPh, COPh_g, COPh_h,
 	COPl, COPl_g, COPl_h,
 	T13, T9, qm, latenHeat, cp_cw, cp_cs,
-	cpqm_l, k1, dTe_l1, dTe_l2, dTc_l, QhRecycle, Tair,TWaste
+	cpqm_l, k1, dTe_l1, dTe_l2, dTc_l, QhRecycle, Tair,TWaste,
 	cpm_l, KTloss_l, k6,
 	cpqm_m, k2, dTe_h, k3, dTc_h1, dTc_h2, cpqm_h,minTeh,
 	cpm_h, KTloss_h, k4, k5, k7,k8,
 	TstorageTankMax, heatStorageVelocity, heatStorageCapacityConstraint, heatpumpPowerConstraint,
-	hourlyTariffList, heatConsumptionPowerList
+	hourlyTariffList, heatConsumptionPowerList)
 end
 
 """给定系统参数,求解系统成本,返回成本、热泵功率向量、蓄热量向量"""
-function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
+function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	COPh::Function,
 	COPh_g::Function,
 	COPh_h::Function,
@@ -435,5 +444,5 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 
 	return isFesable, Pl1List, Pl2List, Ph1List, Ph2List, PList, TstorageList, T1List, T3List, T4List, T5List, COPl1, COPl2, COPh1, COPh2, heatConsumptionPowerList, costList, heatStorageList
 	=#
-	return Pl1List,Pl2List,
+	return Pl1List,Pl2List
 end
