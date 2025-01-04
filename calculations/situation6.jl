@@ -3,6 +3,7 @@ using Revise
 using CSV, DataFrames
 #using Plots
 using HeatPumpWithStorageSystem
+using LinearAlgebra
 (COPh, COPh_g, COPh_h,
 	COPl, COPl_g, COPl_h,
 	T13, T9, qm, latenHeat, cp_cw, cp_cs,
@@ -12,16 +13,16 @@ using HeatPumpWithStorageSystem
 	cpm_h, KTloss_h, k4, k5, k7, k8,
 	TstorageTankMax, heatStorageVelocity, heatStorageCapacityConstraint, heatpumpPowerConstraint,
 	hourlyTariffList, heatConsumptionPowerList) = generateSystemCoff(PressedWaterDoubleStorage();
-	refrigerantLow = "R134a",    # 供热循环使用制冷剂
-	refrigerantHigh = "water",   # 蓄热使用制冷剂
-	maxTcHigh = 180.0,  # 高温热泵冷凝器温度上限
-	maxTcLow = 80.0,  # 低温热泵冷凝器温度上限
+	refrigerantLow = "R134a",    	# 供热循环使用制冷剂
+	refrigerantHigh = "water",   	# 蓄热使用制冷剂
+	maxTcHigh = 180.0,  			# 高温热泵冷凝器温度上限
+	maxTcLow = 92.0,  				# 低温热泵冷凝器温度上限
 	eta_s = 0.7,                        # 压缩机绝热效率
 	Twastein = 80.0,                    # 废气进入温度
 	Twasteout = 40.0,                   # 废气排出温度
 	Tair = fill(25.0, 24),            # 外部环境温度
 	dTair = 5.0,                        # 外部环境温度-蒸发器温度
-	dTlc_he = 10.0,  # 高温热泵蒸发器温度与低温热泵冷凝器温度差
+	dTlc_he = 13.0,  # 高温热泵蒸发器温度与低温热泵冷凝器温度差
 	maxTeh = 180.0,  # 高温热泵蒸发器温度上限
 	Tuse = 120.0,                       # 工厂使用温度
 	Trecycle = 115.0,    # 回收蒸汽温度
@@ -44,32 +45,34 @@ using HeatPumpWithStorageSystem
 	Te_hStandard =80.0
 )
 
+g=zeros(2)
+H=zeros(2,2)
+COPh(80.5,150.0)
+COPh_g(g,83.0,150.0)
+H=LowerTriangular(zeros(2,2))
+COPh_h(H,80.5,132.0)
+COPl(30.0,80.0)
+COPl_g(g,32.5,80.0)
+COPl_h(H,32.5,80.0)
+#101 451 51 601 1
+
+function testFun(x1,x2)
+	g=zeros(2)
+	COPh_g(g,83.0,132.0)
+	return g
+end
+
 generateAndSolve(PressedWaterDoubleStorage(), MinimizeCost();
-	COPSupplyWaste = COPSupplyWaste,
-	COPSupplyAir = COPSupplyAir,
-	COPStorageWaste = COPStorageWaste,
-	COPStorageAir = COPStorageAir,
-	COPSupplyWaste_g = COPSupplyWaste_g,
-	COPSupplyAir_g = COPSupplyAir_g,
-	COPStorageWaste_g = COPStorageWaste_g,
-	COPStorageAir_g = COPStorageAir_g,
-	COPSupplyWaste_h = COPSupplyWaste_h,
-	COPSupplyAir_h = COPSupplyAir_h,
-	COPStorageWaste_h = COPStorageWaste_h,
-	COPStorageAir_h = COPStorageAir_h,
-	heatConsumptionPowerList = heatConsumptionPowerList,
-	heatStorageCapacityConstraint = heatStorageCapacityConstraint,
-	heatpumpPowerConstraint = heatpumpPowerConstraint,
-	hourlyTariffList = hourlyTariffList,
-	heatStorageVelocity = heatStorageVelocity,
-	T4 = T4,
-	cpqml = cpqml,
-	cpqmh = cpqmh,
-	cpm = cpm,
-	kt = kt,
-	TwastCapacity = TwastCapacity,
-	TstorageTankMax = TstorageTankMax,
-	heatStorageOutEfficiency = 1e-3,
+COPh=COPh, COPh_g=COPh_g, COPh_h=COPh_h,
+COPl=COPl, COPl_g=COPl_g, COPl_h=COPl_h,
+T13=T13, T9=T9, qm=qm, latenHeat=latenHeat, cp_cw=cp_cw, cp_cs=cp_cs,
+cpqm_l=cpqm_l, k1=k1, dTe_l1=dTe_l1, dTe_l2=dTe_l2, dTc_l=dTc_l, QhRecycle=QhRecycle, Tair=Tair, TWaste=TWaste,
+cpm_l=cpm_l, KTloss_l=KTloss_l, k6=k6,
+cpqm_m=cpqm_m, k2=k2, dTe_h=dTe_h, k3=k3, dTc_h1=dTc_h1, dTc_h2=dTc_h2, cpqm_h=cpqm_h, minTeh=minTeh,
+cpm_h=
+cpm_h, KTloss_h= KTloss_h, k4= k4, k5= k5, k7= k7, k8= k8,
+TstorageTankMax=TstorageTankMax, heatStorageVelocity=heatStorageVelocity, heatStorageCapacityConstraint=heatStorageCapacityConstraint, heatpumpPowerConstraint=heatpumpPowerConstraint,
+hourlyTariffList=hourlyTariffList, heatConsumptionPowerList=heatConsumptionPowerList
 )
 
 @show isFesable

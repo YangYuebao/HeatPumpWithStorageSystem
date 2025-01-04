@@ -53,19 +53,33 @@ function getCOP_g_h(
 		iEnd = round(Int,(maxTe - 70) * 10 + 1)
 		jStart = round(Int,(minTc - 70) * 10 + 1)
 		jEnd = round(Int,(maxTc - 70) * 10 + 1)
-		@info any(isnan.(dfTemp))
+		#@info any(isnan.(dfTemp))
 	end
-	#println(minTe," ", maxTe," ", minTc," ", maxTc)
-	#println(size(dfTemp))
-	#println(iStart," ", iEnd," ", jStart," ", jEnd," ", step)
+	println(minTe," ", maxTe," ", minTc," ", maxTc)
+	println(size(dfTemp))
+	println(iStart," ", iEnd," ", jStart," ", jEnd," ", step)
 	COPMatrix = Matrix(dfTemp[iStart:step:iEnd, jStart:step:jEnd])*eta_s .+ 1.0
+
+	m,n=size(COPMatrix)
+	count=0
+	for j=1:n
+		for i=1:m
+			if COPMatrix[i,j]>=21.0
+				COPMatrix[i,j]=21.0
+			end
+			if COPMatrix[i,j]<=-21.0
+				COPMatrix[i,j]=-21.0
+			end
+			count+=1
+		end
+	end
 
 	itpCOP = interpolate(COPMatrix, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOP = scale(itpCOP, TeList, TcList)
 
-	function COPfunction(Te, Tc)
-		COP = sitpCOP(Te, Tc)
-		if Tc > TcChangeToElec
+	function COPfunction(x::T ...)::T where {T<:Real}
+		COP = sitpCOP(x[1], x[2])
+		if x[2] > TcChangeToElec
 			return 1.0
 		end
 		if COP > maxCOP || COP <= 0
@@ -74,20 +88,27 @@ function getCOP_g_h(
 		return COP
 	end
 
-	function COPfunction_g(Te, Tc)
-		COP = sitpCOP(Te, Tc)
-		if (Tc > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
-			return zeros(2)
+	function COPfunction_g(g::AbstractVector{T}, x::T ...)::Nothing where {T<:Real}
+		COP = sitpCOP(x[1], x[2])
+		if (x[2] > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
+			g[1],g[2] = zeros(2)
+			return nothing
 		end
-		return Interpolations.gradient(sitpCOP, Te, Tc)
+		g[1],g[2] = Interpolations.gradient(sitpCOP, x[1], x[2]) |> Vector
+		return nothing
 	end
 
-	function COPfunction_h(Te, Tc)
-		COP = sitpCOP(Te, Tc)
-		if (Tc > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
-			return zeros(2, 2)
+	function COPfunction_h(H::AbstractMatrix{T}, x::T ...)::Nothing where {T<:Real}
+		COP = sitpCOP(x[1], x[2])
+		if (x[2] > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
+			H[1,1],H[2,1],_,H[2,2]=zeros(4)
+			return nothing
 		end
-		return Interpolations.hessian(sitpCOP, Te, Tc)
+		H[1,1],H[2,1],_,H[2,2]=Interpolations.hessian(sitpCOP, x[1], x[2]) |> Matrix
+
+		H=LowerTriangular(H)
+
+		return nothing
 	end
 
 	return COPfunction, COPfunction_g, COPfunction_h
@@ -291,6 +312,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 		@constraint(model, [i = 1:m], cpqmh * 2 * kt / (1 + kt) * (T1[i] - T[i]) <= heatpumpPowerConstraint)
 	=#
 
+	Tair_min= minimum(Tair)					# 环境最低温度
 	@variable(model, qm1[i = 1:m] >= 0)	# 质量流量:低温蓄热->高温热泵->供热
 	@variable(model, qm2[i = 1:m] >= 0)	# 质量流量:低温蓄热->高温蓄热->供热
 	@variable(model, qm3[i = 1:m] >= 0)	# 质量流量:低温蓄热->供热
@@ -298,10 +320,10 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	@variable(model, qm5[i = 1:m] >= 0)	# 质量流量:高温蓄热->供热
 	@variable(model, qm6[i = 1:m] >= 0)	# 质量流量:高温蓄热->高温热泵->供热
 	@variable(model, Qc_l[i = 1:m] >= 0)	# 低温热泵输出热功率
-	@variable(model, T1[i = 1:m] >= Tair)	# 低温热泵出水温度=低温蓄热加热进水温度
-	@variable(model, T3[i = 1:m] >= Tair)	# 低温蓄热温度
+	@variable(model, T1[i = 1:m] >= Tair_min)	# 低温热泵出水温度=低温蓄热加热进水温度
+	@variable(model, T3[i = 1:m] >= Tair_min)	# 低温蓄热温度
 	@variable(model, T5[i = 1:m] >= minTeh)	# 高温热泵蒸发器从低温蓄热取热的温度
-	@variable(model, T6[i = 1:m] >= Tair)	# 高温热泵冷凝器向高温蓄热储热的温度
+	@variable(model, T6[i = 1:m] >= Tair_min)	# 高温热泵冷凝器向高温蓄热储热的温度
 	@variable(model, T8[i = 1:m] >= minTeh+0.1)	# 高温蓄热温度
 	# T9是常数，工厂回水温度
 	@variable(model, T10[i = 1:m] >= T9)	# 低温蓄热供热温度
@@ -313,8 +335,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	@variable(model, T16[i = 1:m] >= T9)		# 回水再热蒸汽排出高温蓄热罐温度
 	@variable(model, T17[i = 1:m] >= minTeh)	# 回水供热蒸汽排出高温蓄热罐温度
 	@variable(model, T18[i = 1:m] >= minTeh)	# 低温供热蒸汽排出高温蓄热罐温度
-
-	@variable(model, Tc_l[i = 1:m] >= Tair)	# 低温热泵冷凝器温度
+	@variable(model, Tc_l[i = 1:m] >= Tair_min)	# 低温热泵冷凝器温度
 	# Te_l1 = TWaste .- dTe_l1 	# 低温热泵废热回收蒸发器温度，确定值直接计算于下方
 	# Te_l2 = Tair .- dTe_l2	# 低温热泵空气源蒸发器温度
 	@variable(model, P_l1[i = 1:m] >= 0)	# 低温热泵废热源功率
@@ -323,7 +344,6 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	@variable(model, P_h2[i = 1:m] >= 0)	# 高温供热热泵功率
 	@variable(model, Qs_l[i = 1:m] >= 0)	# 低温蓄热量
 	@variable(model, Qs_h[i = 1:m] >= 0)	# 高温蓄热量
-	Tair_min= minimum(Tair)					# 环境最低温度
 	@variable(model, 0 <= lambda1[i = 1:m] <=1)	# 低温蓄热罐直接换热的流量比
 	@variable(model, 0 <= lambda2[i = 1:m] <=1)	# 高温蓄热罐再热支路的流量比
 	@variable(model, 0 <= lambda3[i = 1:m] <=1)	# 高温蓄热罐直供支路的流量比
@@ -349,7 +369,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	Te_l1 = TWaste - dTe_l1	# 低温热泵废热回收蒸发器温度
 	Te_l2 = Tair .- dTe_l2		# 低温热泵空气源蒸发器温度
 	# 6. 低温热泵输出热量功率与COP的关系
-	@constraint(model, cons06[i = 1:m],Qc_l[i]==opCOPl(Te_l1,Tc_l[i]) * P_l1[i]+opCOPl(Te_l2,Tc_l[i]) * P_l2[i])
+	@constraint(model, cons06[i = 1:m],Qc_l[i]==opCOPl(Te_l1,Tc_l[i]) * P_l1[i]+opCOPl(Te_l2[i],Tc_l[i]) * P_l2[i])
 	# 7. 废热源热量约束
 	@constraint(model, cons07[i = 1:m],(opCOPl(Te_l1,Tc_l[i])-1) * P_l1[i] <= QhRecycle[i])
 	# 8. 温度关系约束
@@ -360,7 +380,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	@constraint(model, cons09[i = 1:m],Qs_l[i]==cpm_l*(T3[i]-Tair_min))
 	# 10.蓄热罐能量守恒
 	@constraint(model, cons10_1[i = 1:m-1],cpm_l*(T3[i+1]-T3[i])==(cp_cs*(T10[i]-T9)+latenHeat)*(qm1[i]+qm2[i]+qm3[i]+qm4[i])+Qc_l[i]-Qe_h[i]-KTloss_l*cpm_l*(T3[i+1]-Tair[i+1]))
-	@constraint(model, cons10_2,cpm_l*(T3[1]-T3[m])==(cp_cs*(T10[m]-T9[m])+latenHeat)*(qm1[m]+qm2[m]+qm3[m]+qm4[m])+Qc_l[m]-Qe_h[m]-KTloss_l*cpm_l*(T3[1]-Tair[1]))
+	@constraint(model, cons10_2,cpm_l*(T3[1]-T3[m])==(cp_cs*(T10[m]-T9)+latenHeat)*(qm1[m]+qm2[m]+qm3[m]+qm4[m])+Qc_l[m]-Qe_h[m]-KTloss_l*cpm_l*(T3[1]-Tair[1]))
 
 	# 11. 温度关系约束——蓄热罐温度>=环境温度
 	@constraint(model, cons11[i = 1:m],T3[i]>=Tair[i])
@@ -382,8 +402,8 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	# 19. 高温热泵输出供热功率
 	@constraint(model, cons19[i = 1:m],Qc_h2[i]==cp_cs*(qm1[i]+qm4[i]+qm6[i])*(T12[i]-T15[i]))
 	# 20.21. 高温热泵功率与COP
-	@constraint(model, cons20[i = 1:m],Qc_h1[i]==opCOPh(Te_h[i],Tc_h1[i])*P_h1)
-	@constraint(model, cons21[i = 1:m],Qc_h2[i]==opCOPh(Te_h[i],Tc_h2[i])*P_h2)
+	@constraint(model, cons20[i = 1:m],Qc_h1[i]==opCOPh(Te_h[i],Tc_h1[i])*P_h1[i])
+	@constraint(model, cons21[i = 1:m],Qc_h2[i]==opCOPh(Te_h[i],Tc_h2[i])*P_h2[i])
 	# 22.~27. 温度约束
 	@constraint(model, cons22[i = 1:m],T6[i]>=T8[i])
 	@constraint(model, cons23[i = 1:m],T14[i]==lambda2[i]*(T10[i]*(1-k5)/(1+k5)+T8[i]*2*k5/(1+k5))+(1-lambda2[i])*T10[i])
@@ -396,13 +416,13 @@ function generateAndSolve(::PressedWaterDoubleStorage, 	::MinimizeCost;
 	# 28.高温蓄热量
 	@constraint(model, cons28[i = 1:m],Qs_l[i]==cpm_l*(T8[i]-Tair_min))
 	# 29.蓄热罐能量守恒
-	@constraint(model, cons29_1[i = 1:m-1],cpm_h*(T8[i+1]-T8[i])==cp_cs*(qm4[i]*(T10[i]-T14[i])+qm2[i]*(T10[i]-T18[i]))-qm5[i]*(cp_cs*(T17[i]-T9[i])+latenHeat)-qm6[i]*(cp_cs*(T16[i]-T9[i])+latenHeat)-KTloss_h*cpm_h*(T8[i+1]-Tair[i+1])+Qc_h1[i])
-	@constraint(model, cons29_2,cpm_h*(T8[1]-T8[m])==cp_cs*(qm4[m]*(T10[m]-T14[m])+qm2[m]*(T10[m]-T18[m]))-qm5[m]*(cp_cs*(T17[m]-T9[m])+latenHeat)-qm6[m]*(cp_cs*(T16[m]-T9[m])+latenHeat)-KTloss_h*cpm_h*(T8[1]-Tair[1])+Qc_h1[m])
+	@constraint(model, cons29_1[i = 1:m-1],cpm_h*(T8[i+1]-T8[i])==cp_cs*(qm4[i]*(T10[i]-T14[i])+qm2[i]*(T10[i]-T18[i]))-qm5[i]*(cp_cs*(T17[i]-T9)+latenHeat)-qm6[i]*(cp_cs*(T16[i]-T9)+latenHeat)-KTloss_h*cpm_h*(T8[i+1]-Tair[i+1])+Qc_h1[i])
+	@constraint(model, cons29_2,cpm_h*(T8[1]-T8[m])==cp_cs*(qm4[m]*(T10[m]-T14[m])+qm2[m]*(T10[m]-T18[m]))-qm5[m]*(cp_cs*(T17[m]-T9)+latenHeat)-qm6[m]*(cp_cs*(T16[m]-T9)+latenHeat)-KTloss_h*cpm_h*(T8[1]-Tair[1])+Qc_h1[m])
 	# 30.~36. 温度约束
 	@constraint(model, cons30[i = 1:m],T18[i]>=T10[i])
 	@constraint(model, cons31[i = 1:m],T14[i]>=T10[i])
-	@constraint(model, cons32[i = 1:m],T17[i]>=T9[i])
-	@constraint(model, cons33[i = 1:m],T16[i]>=T9[i])
+	@constraint(model, cons32[i = 1:m],T17[i]>=T9)
+	@constraint(model, cons33[i = 1:m],T16[i]>=T9)
 	# T10[i]==lambda1[i]*(T9*(1-k6)/(1+k6)+T3[i]*2*k6/(1+k6))+(1-lambda1[i])*T9
 	@constraint(model, cons34[i = 1:m],T16[i]==lambda5[i]*(T9*(1-k8)/(1+k8)+T8[i]*2*k8/(1+k8))+(1-lambda5[i])*T9)
 	@constraint(model, cons35[i = 1:m],T17[i]==lambda4[i]*(T9*(1-k7)/(1+k7)+T8[i]*2*k7/(1+k7))+(1-lambda4[i])*T9)

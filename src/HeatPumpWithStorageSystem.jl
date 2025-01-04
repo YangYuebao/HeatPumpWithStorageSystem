@@ -1,6 +1,7 @@
 module HeatPumpWithStorageSystem
 
 using JuMP, HiGHS, Ipopt, EAGO# 优化接口JuMP，优化器HiGHS
+using LinearAlgebra
 using Interpolations
 using CoolProp# 物性库
 using CSV,DataFrames
