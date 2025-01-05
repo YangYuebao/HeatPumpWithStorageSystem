@@ -4,6 +4,17 @@ using CSV, DataFrames
 #using Plots
 using HeatPumpWithStorageSystem
 using LinearAlgebra
+
+# 参数设置
+begin
+hourlyTariff = zeros(24)
+hourlyTariff[1:6] .= 0.3340
+hourlyTariff[7:10] .= 0.7393
+hourlyTariff[11:13] .= 1.2360
+hourlyTariff[14:17] .= 0.7393
+hourlyTariff[18:22] .= 1.2360
+hourlyTariff[23:24] .= 0.3340
+
 (COPh, COPh_g, COPh_h,
 	COPl, COPl_g, COPl_h,
 	T13, T9, qm, latenHeat, cp_cw, cp_cs,
@@ -33,18 +44,18 @@ using LinearAlgebra
 	kt = 0.5,                           # 蓄热 \Delta T_2 / \Delta T_1
 	dT_l = 5.0,    # 低温热泵蒸发器与冷凝器传热温差,也用作低温系统的传热温差
 	TwastCapacity = 0.8,                # 废热容量是工厂用热量的倍数
-	heatStorageOutEfficiency = 0.0001,  # 蓄热衰减系数K
+	heatStorageOutEfficiency = 0.000,  # 蓄热衰减系数K
 	dT_h = 5.0,    # 高温热泵蒸发器与冷凝器传热温差
 	heatConsumptionPower = 1.0,         # 每小时用热功率kW
 	maxCOP = 21.0,                      # 热泵COP上限
 	workingStartHour = 8,                # 生产开始时间
 	workingHours = 16,                   # 每日工作小时数
 	PheatPumpMax = 1.0,                 # 热泵最大功率kW
-	hourlyTariff = fill(0.7, 24),     # 电价向量
+	hourlyTariff = hourlyTariff,     # 电价向量
 	COPInterpolateGap = 0.1,    # COP插值时步长
-	Te_hStandard =80.0
 )
-
+end
+#=
 g=zeros(2)
 H=zeros(2,2)
 COPh(80.5,150.0)
@@ -54,13 +65,8 @@ COPh_h(H,80.5,132.0)
 COPl(30.0,80.0)
 COPl_g(g,32.5,80.0)
 COPl_h(H,32.5,80.0)
-#101 451 51 601 1
-
-function testFun(x1,x2)
-	g=zeros(2)
-	COPh_g(g,83.0,132.0)
-	return g
-end
+101 451 51 601 1
+=#
 
 generateAndSolve(PressedWaterDoubleStorage(), MinimizeCost();
 COPh=COPh, COPh_g=COPh_g, COPh_h=COPh_h,
@@ -75,9 +81,8 @@ TstorageTankMax=TstorageTankMax, heatStorageVelocity=heatStorageVelocity, heatSt
 hourlyTariffList=hourlyTariffList, heatConsumptionPowerList=heatConsumptionPowerList
 )
 
-@show isFesable
 
-
+#=
 resultdf = DataFrame(
 	"时间" => 0:23,
 	"低温热泵废热功率Pl1" => Pl1List,
@@ -106,3 +111,5 @@ CSV.write(joinpath(pwd(), "calculations", "situation5", "result2.csv"), round.(r
 
 #plt3 = plot(1:25, vcat(TstorageList, TstorageList[1]), title = "2h", xlabel = "Hour", ylabel = "kW", legend = :none)
 #plt4 = plot(1:25, vcat(heatStorageList, heatStorageList[1]), title = "2h", xlabel = "Hour", ylabel = "kWh", legend = :none)
+=#
+
