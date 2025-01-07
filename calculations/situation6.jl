@@ -47,7 +47,7 @@ begin
 		TwastCapacity = 0.8,                # 废热容量是工厂用热量的倍数
 		heatStorageOutEfficiency = 0.000,  # 蓄热衰减系数K
 		dT_h = 5.0,    # 高温热泵蒸发器与冷凝器传热温差
-		heatConsumptionPower = 1.0,         # 每小时用热功率kW
+		heatConsumptionPower = 1e2,         # 每小时用热功率kW
 		maxCOP = 21.0,                      # 热泵COP上限
 		workingStartHour = 8,                # 生产开始时间
 		workingHours = 16,                   # 每日工作小时数
@@ -56,6 +56,10 @@ begin
 		COPInterpolateGap = 0.1,    # COP插值时步长
 	)
 end
+
+#=
+蓄热的温度不会低于冷凝水的回水温度，所以实际上温度的扩展范围变化不大
+=#
 
 generateAndSolve(PressedWaterDoubleStorage(), MinimizeCost();
 	COPh = COPh, COPh_g = COPh_g, COPh_h = COPh_h,
