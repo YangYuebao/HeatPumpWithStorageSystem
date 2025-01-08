@@ -32,10 +32,10 @@ begin
 		eta_s = 0.7,                        # 压缩机绝热效率
 		Twastein = 80.0,                    # 废气进入温度
 		Twasteout = 40.0,                   # 废气排出温度
-		Tair = fill(25.0, 24),            # 外部环境温度
+		Tair = fill(25.0, 24),            	# 外部环境温度
 		dTair = 5.0,                        # 外部环境温度-蒸发器温度
-		dTlc_he = 13.0,  # 高温热泵蒸发器温度与低温热泵冷凝器温度差
-		maxTeh = 180.0,  # 高温热泵蒸发器温度上限
+		dTlc_he = 13.0,  					# 高温热泵蒸发器温度与低温热泵冷凝器温度差
+		maxTeh = 180.0,  					# 高温热泵蒸发器温度上限
 		Tuse = 120.0,                       # 工厂使用温度
 		Trecycle = 115.0,    # 回收蒸汽温度
 		heatStorageCapacity = 6.0,          # 蓄热量kWh(承压水蓄热)
@@ -47,7 +47,7 @@ begin
 		TwastCapacity = 0.8,                # 废热容量是工厂用热量的倍数
 		heatStorageOutEfficiency = 0.000,  # 蓄热衰减系数K
 		dT_h = 5.0,    # 高温热泵蒸发器与冷凝器传热温差
-		heatConsumptionPower = 1e2,         # 每小时用热功率kW
+		heatConsumptionPower = 1e0,         # 每小时用热功率kW
 		maxCOP = 21.0,                      # 热泵COP上限
 		workingStartHour = 8,                # 生产开始时间
 		workingHours = 16,                   # 每日工作小时数
@@ -75,35 +75,5 @@ generateAndSolve(PressedWaterDoubleStorage(), MinimizeCost();
 	maxTcLow=maxTcLow,
 )
 
-
-#=
-resultdf = DataFrame(
-	"时间" => 0:23,
-	"低温热泵废热功率Pl1" => Pl1List,
-	"低温热泵空气源功率Pl2" => Pl2List,
-	"高温热泵废热功率Ph1" => Ph1List,
-	"高温热泵空气源功率Ph2" => Ph2List,
-	"低温热泵废热COP" => COPl1,
-	"低温热泵空气源COP" => COPl2,
-	"高温热泵废热COP" => COPh1,
-	"高温热泵空气源COP" => COPh2,
-	"热泵总功率" => PList,
-	"蓄热量" => heatStorageList,
-	"用热需求" => heatConsumptionPowerList,
-	"蓄热罐平均温度T" => TstorageList,
-	"蓄热温度T1" => T1List,
-	"蓄热温差" => T1List - TstorageList,
-	"低温热泵出水温度T3" => T3List,
-	"用热温度T4" => T4List,
-	"供热回水温度T5" => T5List,
-	"总成本" => costList,
-)
-
-
-
-CSV.write(joinpath(pwd(), "calculations", "situation5", "result2.csv"), round.(resultdf, digits = 2))
-
-#plt3 = plot(1:25, vcat(TstorageList, TstorageList[1]), title = "2h", xlabel = "Hour", ylabel = "kW", legend = :none)
-#plt4 = plot(1:25, vcat(heatStorageList, heatStorageList[1]), title = "2h", xlabel = "Hour", ylabel = "kWh", legend = :none)
-=#
+#3.901206566133562
 

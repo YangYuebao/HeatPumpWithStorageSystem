@@ -1,4 +1,10 @@
 
+"""
+循环差
+"""
+function recycleDiff(a::Vector)
+	return vcat(a[2:end] - a[1:end - 1], a[1] - a[end])
+end
 
 """
 基于物性的COP计算
@@ -205,6 +211,7 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 	T9 = Trecycle
 	qmStandard = qmperkW(Tuse, Trecycle)
 	qm = qmStandard * heatConsumptionPowerList	#kg/s
+	qm .+= 1e-8
 	latenHeat = 2150.0		# 汽化潜热kJ/kg
 	cp_cw = 4.275			# 循环水定压热容kJ/kg
 	cp_cs = 2.281			# 循环蒸汽定压热容kJ/kg
@@ -345,7 +352,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	@variable(model, TstorageTankMax >= T8[i = 1:m] >= minTeh + 0.1, start = TcChangeToElec)# 高温蓄热温度
 	# T9是常数，工厂回水温度
 	@variable(model, T10[i = 1:m] >= T9)# 低温蓄热供热温度
-	@variable(model, T11[i = 1:m] >= T9)# 高温蓄热供热温度
+
 	@variable(model, T12[i = 1:m] >= minTeh)# 再热蒸汽排出高温热泵冷凝器温度
 	# T13是常数，工厂用蒸汽温度
 	@variable(model, T14[i = 1:m] >= minTeh)# 低温再热蒸汽进入高温热泵冷凝器温度
@@ -362,7 +369,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	@variable(model, heatpumpPowerConstraint >= P_h2[i = 1:m] >= 0)# 高温供热热泵功率
 	@variable(model, Qs_l[i = 1:m] >= 0)# 低温蓄热量
 	@variable(model, Qs_h[i = 1:m] >= 0)# 高温蓄热量
-	@variable(model, 0 <= lambda1[i = 1:m] <= 1)# 低温蓄热罐直接换热的流量比
+	@variable(model, 0 <= lambda1[i = 1:m] <= 1,start=0.0)# 低温蓄热罐直接换热的流量比
 	@variable(model, 0 <= lambda2[i = 1:m] <= 1)# 高温蓄热罐再热支路的流量比
 	@variable(model, 0 <= lambda3[i = 1:m] <= 1)# 高温蓄热罐直供支路的流量比
 	@variable(model, 0 <= lambda4[i = 1:m] <= 1)# 高温蓄热罐回水直供支路的流量比
@@ -502,7 +509,6 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 			"高温罐温度T8" => value.(T8),			
 			"冷凝水温度T9" => fill(T9, 24),
 			"低温蓄热出水温度T10" => value.(T10),
-			"高温蓄热供热温度T11" => value.(T11),
 			"再热出热泵温度T12"=>value.(T12),
 			"用热温度T13" => fill(T13, 24),
 			"T10进高蓄再热前T14"=>value.(T14),
@@ -532,7 +538,6 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 			"低温罐蓄热量Qs_l"=>value.(Qs_l),
 			"高温热泵输入热量Qe_h"=>value.(Qe_h),
 			"低温循环水取热量"=>value.(qm1+qm2+qm3+qm4) .* (cp_cs * (value.(T10) .- T9) .+ latenHeat),
-			"我蒙了"=>map.(i->3600*value.((cp_cs * (T9 - T10[i]) - latenHeat) * (qm1[i] + qm2[i] + qm3[i] + qm4[i]) + Qc_l[i] - Qe_h[i]),1:m),
 			"lambda1"=>value.(lambda1),
 			"lambda2"=>value.(lambda2),
 			"lambda3"=>value.(lambda3),
@@ -543,5 +548,6 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 		@info "The result is saved in $(joinpath(pwd(),"calculations","situation6","result.csv"))"
 	end
 
+	println("cost per day:",objective_value(model))
 	return isFesable,dfResult
 end
