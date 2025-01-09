@@ -338,9 +338,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 
 	# 定义变量
 	Tair_min = minimum(Tair)# 环境最低温度
-	@variable(model, qm1[i = 1:m] >= 0, start = qm[i])# 质量流量:低温蓄热->高温热泵->供热
 	@variable(model, qm2[i = 1:m] >= 0, start = 0)# 质量流量:低温蓄热->高温蓄热->供热
-	@variable(model, qm3[i = 1:m] >= 0, start = 0)# 质量流量:低温蓄热->供热
 	@variable(model, qm4[i = 1:m] >= 0, start = 0)# 质量流量:低温蓄热->高温蓄热->高温热泵->供热
 	@variable(model, qm5[i = 1:m] >= 0, start = 0)# 质量流量:高温蓄热->供热
 	@variable(model, qm6[i = 1:m] >= 0, start = 0)# 质量流量:高温蓄热->高温热泵->供热
@@ -352,7 +350,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	@variable(model, TstorageTankMax >= T8[i = 1:m] >= minTeh + 0.1, start = TcChangeToElec)# 高温蓄热温度
 	# T9是常数，工厂回水温度
 	@variable(model, T10[i = 1:m] >= T9)# 低温蓄热供热温度
-
+	@variable(model, T11[i = 1:m] >= T9)# 闪蒸温度
 	@variable(model, T12[i = 1:m] >= minTeh)# 再热蒸汽排出高温热泵冷凝器温度
 	# T13是常数，工厂用蒸汽温度
 	@variable(model, T14[i = 1:m] >= minTeh)# 低温再热蒸汽进入高温热泵冷凝器温度
@@ -369,11 +367,6 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	@variable(model, heatpumpPowerConstraint >= P_h2[i = 1:m] >= 0)# 高温供热热泵功率
 	@variable(model, Qs_l[i = 1:m] >= 0)# 低温蓄热量
 	@variable(model, Qs_h[i = 1:m] >= 0)# 高温蓄热量
-	@variable(model, 0 <= lambda1[i = 1:m] <= 1,start=0.0)# 低温蓄热罐直接换热的流量比
-	@variable(model, 0 <= lambda2[i = 1:m] <= 1)# 高温蓄热罐再热支路的流量比
-	@variable(model, 0 <= lambda3[i = 1:m] <= 1)# 高温蓄热罐直供支路的流量比
-	@variable(model, 0 <= lambda4[i = 1:m] <= 1)# 高温蓄热罐回水直供支路的流量比
-	@variable(model, 0 <= lambda5[i = 1:m] <= 1)# 高温蓄热罐回水再热支路的流量比
 	@variable(model, maxTcLow>=Te_h[i = 1:m] >= minTeh)# 高温热泵蒸发器温度
 	@variable(model, TstorageTankMax+5. >= Tc_h1[i = 1:m] >= minTeh + 0.1)# 高温热泵蒸发器温度——蓄热
 	@variable(model, TstorageTankMax+5. >= Tc_h2[i = 1:m] >= minTeh + 0.1)# 高温热泵蒸发器温度——供热
@@ -383,13 +376,11 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 
 	# 总循环回水约束
 	# 1. 循环水质量守恒
-	@constraint(model, cons01[i = 1:m], qm[i] == qm1[i] + qm2[i] + qm3[i] + qm4[i] + qm5[i] + qm6[i])
+	@constraint(model, cons01[i = 1:m], qm[i] == qm2[i] + qm4[i] + qm5[i] + qm6[i])
 
 	# 低温热泵约束
 	# 2. 低温热泵输出热量功率=低温蓄热加热功率
-	@constraint(model, cons02_1[i = 1:m], Qc_l[i] == cpqm_l * 2 * k1 / (1 + k1) * (T1[i] - T3[i]))	# kW
-	
-	@constraint(model, cons02_2[i = 1:m], Qc_l[i] == cpqm_l * 2 * k1 / (1 + k1) * (T1[i] - T3[i]))	# kW
+	@constraint(model, cons02[i = 1:m], Qc_l[i] == cpqm_l * 2 * k1 / (1 + k1) * (T1[i] - T3[i]))	# kW
 	
 	# 3. 低温热泵冷凝器温度
 	@constraint(model, cons03[i = 1:m], Tc_l[i] == 1 / (1 + k1) * T1[i] + k1 / (1 + k1) * T3[i] + dTc_l)
@@ -407,13 +398,13 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	# 9. 低温蓄热量约束
 	@constraint(model, cons09[i = 1:m], Qs_l[i] == cpm_l * (T3[i] - Tair_min))
 	# 10.蓄热罐能量守恒
-	@constraint(model, cons10_1[i = 1:m-1], cpm_l * (T3[i+1] - T3[i]) == Qc_l[i] - (cp_cs * (T10[i] - T9) + latenHeat) * (qm1[i] + qm2[i] + qm3[i] + qm4[i]) - Qe_h[i] - KTloss_l * cpm_l * (T3[i+1] - Tair[i+1]))
-	@constraint(model, cons10_2, cpm_l * (T3[1] - T3[m]) == Qc_l[m] - (cp_cs * (T10[m] - T9) + latenHeat) * (qm1[m] + qm2[m] + qm3[m] + qm4[m]) - Qe_h[m] - KTloss_l * cpm_l * (T3[1] - Tair[1]))
+	@constraint(model, cons10_1[i = 1:m-1], cpm_l * (T3[i+1] - T3[i]) == Qc_l[i] - (cp_cs * (T10[i] - T9) + latenHeat) * (qm2[i] + qm4[i]) - Qe_h[i] - KTloss_l * cpm_l * (T3[i+1] - Tair[i+1]))
+	@constraint(model, cons10_2, cpm_l * (T3[1] - T3[m]) == Qc_l[m] - (cp_cs * (T10[m] - T9) + latenHeat) * (qm2[m] + qm4[m]) - Qe_h[m] - KTloss_l * cpm_l * (T3[1] - Tair[1]))
 
 	# 11. 温度关系约束——蓄热罐温度>=环境温度
 	@constraint(model, cons11[i = 1:m], T3[i] >= Tair[i])
 	# 12. 温度关系约束——传热温度
-	@constraint(model, cons12[i = 1:m], T10[i] == lambda1[i] * (T9 * (1 - k6) / (1 + k6) + T3[i] * 2 * k6 / (1 + k6)) + (1 - lambda1[i]) * T9)
+	@constraint(model, cons12[i = 1:m], T10[i] <= T9 * (1 - k6) / (1 + k6) + T3[i] * 2 * k6 / (1 + k6))
 
 	# 高温热泵约束
 	# 13. 高温热泵取热功率=低温蓄热释放功率
@@ -425,11 +416,11 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	# 16. 高温热泵蒸发器温度
 	@constraint(model, cons16[i = 1:m], Te_h[i] == T5[i] / (1 + k2) + T3[i] * k2 / (1 + k2) - dTe_h)
 	# 17. 混流温度
-	@constraint(model, cons17[i = 1:m], (qm1[i] + qm4[i] + qm6[i]) * T15[i] == qm1[i] * T10[i] + qm4[i] * T14[i] + qm6[i] * T16[i])
+	@constraint(model, cons17[i = 1:m], (qm4[i] + qm6[i]) * T15[i] == qm4[i] * T14[i] + qm6[i] * T16[i])
 	# 18. 高温热泵输出蓄热功率
 	@constraint(model, cons18[i = 1:m], Qc_h1[i] == cpqm_h * (T6[i] - T8[i]) * 2 * k3 / (1 + k3))
 	# 19. 高温热泵输出供热功率
-	@constraint(model, cons19[i = 1:m], Qc_h2[i] == cp_cs * (qm1[i] + qm4[i] + qm6[i]) * (T12[i] - T15[i]))
+	@constraint(model, cons19[i = 1:m], Qc_h2[i] == cp_cs * (qm4[i] + qm6[i]) * (T12[i] - T15[i]))
 	# 20.21. 高温热泵功率与COP
 	@constraint(model, cons20[i = 1:m], Qc_h1[i] == opCOPh(Te_h[i], Tc_h1[i]) * P_h1[i])
 	@constraint(model, cons21[i = 1:m], Qc_h2[i] == opCOPh(Te_h[i], Tc_h2[i]) * P_h2[i])
@@ -467,15 +458,15 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 
 	# 总循环供蒸汽约束
 	# 37. 温度约束
-	@constraint(model, cons37[i = 1:m], qm[i] * T13 == T10[i] * qm3[i] + T18[i] * qm2[i] + T17[i] * qm5[i] + (qm1[i] + qm4[i] + qm6[i]) * T12[i])
+	@constraint(model, cons37[i = 1:m], qm[i] * T13 == T18[i] * qm2[i] + T17[i] * qm5[i] + (qm4[i] + qm6[i]) * T12[i])
 	# 目标函数
 	@objective(model, Min, sum(hourlyTariffList[i] * (P_l1[i] + P_l2[i] + P_h1[i] + P_h2[i]) for i ∈ 1:m))
 
 	optimize!(model)
 
-	isFesable = primal_status(model) # ==FEASIBLE_POINT ? true : false
+	isFeasible = primal_status(model) # ==FEASIBLE_POINT ? true : false
 
-	println("Fesable:", isFesable)
+	println("Fesable:", isFeasible)
 
 	Pl1List = value.(P_l1)
 	Pl2List = value.(P_l2)
@@ -486,18 +477,12 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	COPh1=map(i -> COPh(value(Te_h[i]), value(Tc_h1[i])), 1:m)
 	COPh2=map(i -> COPh(value(Te_h[i]), value(Tc_h2[i])), 1:m)
 
-	#=
-		@constraint(model, cons10_1[i = 1:m-1], cpm_l * (T3[i+1] - T3[i]) == (cp_cs * (T9 - T10[i]) + latenHeat) * (qm1[i] + qm2[i] + qm3[i] + qm4[i]) + Qc_l[i] - Qe_h[i] - KTloss_l * cpm_l * (T3[i+1] - Tair[i+1]))
-	=#
-
 	dfResult=DataFrame()
-	if isFesable in [FEASIBLE_POINT, NEARLY_FEASIBLE_POINT]
+	if isFeasible in [FEASIBLE_POINT, NEARLY_FEASIBLE_POINT]
 		dfResult = DataFrame(
 			"时间" => 0:23,
 			"质量流量_总kg/h" => qm*3600,
-			"质量流量_低蓄热泵qm1"=>value.(qm1)*3600,
 			"质量流量_低蓄高蓄qm2"=>value.(qm2)*3600,
-			"质量流量_低蓄qm3"=>value.(qm3)*3600,
 			"质量流量_低蓄高蓄热泵qm4"=>value.(qm4)*3600,
 			"质量流量_高蓄qm5"=>value.(qm5)*3600,
 			"质量流量_高蓄热泵qm6"=>value.(qm6)*3600,
@@ -537,7 +522,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 			"低温热泵输出热功率Qc_l"=>value.(Qc_l),
 			"低温罐蓄热量Qs_l"=>value.(Qs_l),
 			"高温热泵输入热量Qe_h"=>value.(Qe_h),
-			"低温循环水取热量"=>value.(qm1+qm2+qm3+qm4) .* (cp_cs * (value.(T10) .- T9) .+ latenHeat),
+			"低温循环水取热量"=>value.(qm2+qm4) .* (cp_cs * (value.(T10) .- T9) .+ latenHeat),
 			"lambda1"=>value.(lambda1),
 			"lambda2"=>value.(lambda2),
 			"lambda3"=>value.(lambda3),
@@ -549,5 +534,5 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	end
 
 	println("cost per day:",objective_value(model))
-	return isFesable,dfResult
+	return isFeasible,dfResult
 end
