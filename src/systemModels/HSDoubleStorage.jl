@@ -2,7 +2,7 @@
 """
 循环差
 """
-function recycleDiff(a::Vector)
+function cycleDiff(a::Vector)
 	return vcat(a[2:end] - a[1:end - 1], a[1] - a[end])
 end
 
@@ -370,7 +370,7 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	@constraint(model, cons09[i = 1:m], Qs_l[i] == cpm_l * (T3[i] - Tair_min))
 	# 10.蓄热罐能量守恒
 	@constraint(model, cons10_1[i = 1:m-1], cpm_l * (T3[i+1] - T3[i]) == Qc_l[i] - (cp_cs * (T4[i] - T9) + latenHeat) * (qm1[i] + qm3[i]) - KTloss_l * cpm_l * (T3[i+1] - Tair[i+1]))
-	@constraint(model, cons10_2, cpm_l * (T3[1] - T3[m]) == Qc_l[m] - (cp_cs * (T4[m] - T9) + latenHeat) * (qm1[i] + qm3[i]) - KTloss_l * cpm_l * (T3[1] - Tair[1]))
+	@constraint(model, cons10_2, cpm_l * (T3[1] - T3[m]) == Qc_l[m] - (cp_cs * (T4[m] - T9) + latenHeat) * (qm1[m] + qm3[m]) - KTloss_l * cpm_l * (T3[1] - Tair[1]))
 
 	# 11. 温度关系约束——蓄热罐温度>=环境温度
 	@constraint(model, cons11[i = 1:m], T3[i] >= Tair[i])
@@ -420,35 +420,27 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 	Pl2List = value.(P_l2)
 	Ph1List = value.(P_h1)
 	Ph2List = value.(P_h2)
+	Ph3List = value.(P_h3)
 	COPl1=map(i -> COPl(Te_l1, value(Tc_l[i])), 1:m)
 	COPl2=map(i -> COPl(Te_l2[i], value(Tc_l[i])), 1:m)
-	COPh1=map(i -> COPh(value(Te_h[i]), value(Tc_h1[i])), 1:m)
-	COPh2=map(i -> COPh(value(Te_h[i]), value(Tc_h2[i])), 1:m)
+	COPh1=map(i -> COPh(value(T4[i]), value(T10)), 1:m)
+	COPh2=map(i -> COPh(value(T5[i]), value(T10)), 1:m)
+	COPh3=map(i -> COPh(value(T4[i]), value(T6[i])), 1:m)
 
 	dfResult=DataFrame()
 	if isFeasible in [FEASIBLE_POINT, NEARLY_FEASIBLE_POINT]
 		dfResult = DataFrame(
 			"时间" => 0:23,
 			"质量流量_总kg/h" => qm*3600,
-			"质量流量_低蓄高蓄qm2"=>value.(qm2)*3600,
-			"质量流量_低蓄高蓄热泵qm4"=>value.(qm4)*3600,
-			"质量流量_高蓄qm5"=>value.(qm5)*3600,
-			"质量流量_高蓄热泵qm6"=>value.(qm6)*3600,
+			"直供流量qm1"=>value.(qm1)*3600,
+			"高蓄取热流量qm2"=>value.(qm2)*3600,
+			"高蓄蓄热流量qm3"=>value.(qm3)*3600,
 			"用热需求" => heatConsumptionPowerList,
 			"低温罐蓄热温度T1"=>value.(T1),
 			"低温罐温度T3" => value.(T3),
-			"高温热泵蒸发器出水温度T5" => value.(T5),
-			"高温热泵蓄热温度T6" => value.(T6),
 			"高温罐温度T8" => value.(T8),			
 			"冷凝水温度T9" => fill(T9, 24),
-			"低温蓄热出水温度T10" => value.(T99),
-			"再热出热泵温度T12"=>value.(T12),
 			"用热温度T10" => fill(T10, 24),
-			"T10进高蓄再热前T14"=>value.(T14),
-			"进高温热泵T15"=>value.(T15),
-			"直接进高蓄再热前T16"=>value.(T16),
-			"直接进高蓄T17"=>value.(T17),
-			"T10进高蓄T18"=>value.(T18),
 			"高温罐蓄热量Qs_h"=>value.(Qs_h),
 			"低温热泵蒸发器温度_热回收TWast"=>fill(TWaste, 24),
 			"低温热泵蒸发器温度_空气源Tair"=>Tair,
@@ -457,24 +449,18 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 			"低温热回收热泵功率" => Pl1List,
 			"低温空气源热泵COPl2" => COPl2,
 			"低温空气源热泵功率" => Pl2List,
-			"高温热泵蒸发器温度Te_h"=>value.(Te_h),
-			"高温热泵冷凝器温度_蓄热Tc_h1"=>value.(Tc_h1),
-			"高温热泵冷凝器温度_供热Tc_h2"=>value.(Tc_h2),
-			"高温蓄热热泵COPh1" => COPh1,
-			"高温蓄热热泵功率" => Ph1List,
-			"高温供热热泵COPh2" => COPh2,
-			"高温供热热泵功率" => Ph2List,
+			"高温供热热泵COPh1" => COPh1,
+			"高温供热热泵功率" => Ph1List,
+			"高温取热热泵COPh2" => COPh2,
+			"高温取热热泵功率" => Ph2List,
+			"高温蓄热热泵COPh3" => COPh3,
+			"高温蓄热热泵功率" => Ph3List,
 			"热回收功率上限QhRecycle"=>QhRecycle,
 			"热回收热泵制热量"=>COPl1.*Ph1List,
 			"空气源热泵制热量"=>COPl2.*Ph2List,
 			"低温热泵输出热功率Qc_l"=>value.(Qc_l),
 			"低温罐蓄热量Qs_l"=>value.(Qs_l),
-			"低温循环水取热量"=>value.(qm2+qm4) .* (cp_cs * (value.(T99) .- T9) .+ latenHeat),
-			"lambda1"=>value.(lambda1),
-			"lambda2"=>value.(lambda2),
-			"lambda3"=>value.(lambda3),
-			"lambda4"=>value.(lambda4),
-			"lambda5"=>value.(lambda5),
+			"低温循环水取热量"=>value.(qm1+qm2) * (cp_cs * (T10 - T9) + latenHeat),
 		)
 		CSV.write(joinpath(pwd(), "calculations", "situation6", "result.csv"), round.(dfResult, digits = 4))
 		@info "The result is saved in $(joinpath(pwd(),"calculations","situation6","result.csv"))"

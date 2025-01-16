@@ -15,16 +15,14 @@ begin
 	hourlyTariff[18:22] .= 1.2360
 	hourlyTariff[23:24] .= 0.3340
 
-	(COPh, COPh_g, COPh_h,
-		COPl, COPl_g, COPl_h,
-		T13, T9, qm, latenHeat, cp_cw, cp_cs,
-		cpqm_l, k1, dTe_l1, dTe_l2, dTc_l, QhRecycle, Tair, TWaste,
-		cpm_l, KTloss_l, k6,
-		cpqm_m, k2, dTe_h, k3, dTc_h1, dTc_h2, cpqm_h, minTeh,
-		cpm_h, KTloss_h, k4, k5, k7, k8,
-		TstorageTankMax, heatStorageVelocity, heatStorageCapacityConstraint, heatpumpPowerConstraint,
-		hourlyTariffList, heatConsumptionPowerList,
-		TcChangeToElec,maxTcLow) = generateSystemCoff(PressedWaterDoubleStorage();
+	(COPh, COPh_g, COPh_h,COPl, COPl_g, COPl_h,
+	T10, T9, qm, latenHeat, cp_cs,
+	cpqm_l, k1, dTe_l1, dTe_l2, dTc_l, QhRecycle, Tair, TWaste,
+	cpm_l, KTloss_l, dT_EvaporationStandard, minTeh,
+	cpm_h, KTloss_h,
+	TstorageTankMax, heatStorageVelocity, heatpumpPowerConstraint,
+	hourlyTariffList, heatConsumptionPowerList,
+	TcChangeToElec,maxTcLow) = generateSystemCoff(PressedWaterDoubleStorage();
 		refrigerantLow = "R134a",    # 供热循环使用制冷剂
 		refrigerantHigh = "water",   # 蓄热使用制冷剂
 		maxTcHigh = 180.0,  # 高温热泵冷凝器温度上限
@@ -62,17 +60,14 @@ end
 =#
 
 generateAndSolve(PressedWaterDoubleStorage(), MinimizeCost();
-	COPh = COPh, COPh_g = COPh_g, COPh_h = COPh_h,
-	COPl = COPl, COPl_g = COPl_g, COPl_h = COPl_h,
-	T13 = T13, T9 = T9, qm = qm, latenHeat = latenHeat, cp_cw = cp_cw, cp_cs = cp_cs,
-	cpqm_l = cpqm_l, k1 = k1, dTe_l1 = dTe_l1, dTe_l2 = dTe_l2, dTc_l = dTc_l, QhRecycle = QhRecycle, Tair = Tair, TWaste = TWaste,
-	cpm_l = cpm_l, KTloss_l = KTloss_l, k6 = k6,
-	cpqm_m = cpqm_m, k2 = k2, dTe_h = dTe_h, k3 = k3, dTc_h1 = dTc_h1, dTc_h2 = dTc_h2, cpqm_h = cpqm_h, minTeh = minTeh,
-	cpm_h = cpm_h, KTloss_h = KTloss_h, k4 = k4, k5 = k5, k7 = k7, k8 = k8,
-	TstorageTankMax = TstorageTankMax, heatStorageVelocity = heatStorageVelocity, heatStorageCapacityConstraint = heatStorageCapacityConstraint, heatpumpPowerConstraint = heatpumpPowerConstraint,
-	hourlyTariffList = hourlyTariffList, heatConsumptionPowerList = heatConsumptionPowerList,
-	TcChangeToElec = TcChangeToElec,
-	maxTcLow=maxTcLow,
+COPh = COPh, COPh_g = COPh_g, COPh_h = COPh_h, COPl = COPl, COPl_g = COPl_g, COPl_h = COPl_h, 
+T10 = T10, T9 = T9, qm = qm, latenHeat = latenHeat, cp_cs = cp_cs, 
+cpqm_l = cpqm_l, k1 = k1, dTe_l1 = dTe_l1, dTe_l2 = dTe_l2, dTc_l = dTc_l, QhRecycle = QhRecycle, Tair = Tair, TWaste = TWaste, 
+cpm_l = cpm_l, KTloss_l = KTloss_l, dT_EvaporationStandard = dT_EvaporationStandard, minTeh = minTeh, 
+cpm_h = cpm_h, KTloss_h = KTloss_h, 
+TstorageTankMax = TstorageTankMax, heatStorageVelocity = heatStorageVelocity, heatpumpPowerConstraint = heatpumpPowerConstraint, 
+hourlyTariffList = hourlyTariffList, heatConsumptionPowerList = heatConsumptionPowerList, 
+TcChangeToElec = TcChangeToElec, maxTcLow = maxTcLow
 )
 
 #3.901206566133562
