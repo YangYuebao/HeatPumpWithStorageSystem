@@ -19,6 +19,9 @@ export HeatPumpStoragePhaseChange,
 	PressedWaterHighStorage,
 	PressedWaterDoubleStorage
 
+#双蓄系统生成COP函数
+export getCOPFunction
+
 abstract type SystemObjectiveType end
 struct MinimizeCost <: SystemObjectiveType end# 最小化成本
 struct MinimizeEnergyCost <: SystemObjectiveType end# 最小化能耗
