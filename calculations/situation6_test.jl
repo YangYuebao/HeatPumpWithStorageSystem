@@ -47,12 +47,12 @@ begin
 	end
 end
 begin
-	Tuse = 170
-	heatStorageTime = 10
+	Tuse = 180
+	heatStorageTime = 1
 	reinitialize = true
 	qm1_init = qm2_init = qm3_init = T3_init = T8_init = Tc_l_init = P_l1_init = P_l2_init = P_h1_init = P_h2_init = P_h3_init = Qc_l_init = Qs_l_init = Qs_h_init = COPh1_temp = COPh2_temp = COPh3_temp = zeros(24)
 	lastHeatStorageTime = 10.0
-	objVal = 6.79
+	objVal = 99
 	filePath = joinpath(filePath0, "Temperature$(Tuse)")
 end
 
@@ -63,7 +63,7 @@ end
 	cpm_h, KTloss_h,
 	TstorageTankMax, heatStorageVelocity, heatpumpPowerConstraint,
 	hourlyTariffList, heatConsumptionPowerList,
-	maxTcLow) = generateSystemCoff(PressedWaterDoubleStorage();
+	maxTcLow,sv) = generateSystemCoff(PressedWaterDoubleStorage();
 	maxTcHigh = maxTcHigh_init,  # 高温热泵冷凝器温度上限
 	maxTcLow = maxTcLow_init,  # 低温热泵冷凝器温度上限
 	TWaste = TWaste_init,                    # 废热源温度
@@ -107,7 +107,7 @@ if reinitialize == false
 	P_h3_init = P_h3_init .* COPh3_temp ./ COPh3_init
 
 end
-isFeasible, dailyCost, dfResult, objVal_temp,errReportStart,errReportSolved = generateAndSolve(PressedWaterDoubleStorage(), MinimizeCost();
+isFeasible, dailyCost, dfResult = generateAndSolve(PressedWaterDoubleStorage(), MinimizeCost();
 	COPh = COPh, COPh_g = COPh_g, COPh_h = COPh_h, COPl = COPl, COPl_g = COPl_g, COPl_h = COPl_h,
 	T10 = T10, T9 = T9, qm = qm, latentHeat = latentHeat, cp_cs = cp_cs,
 	dTe_l1 = dTe_l1, dTe_l2 = dTe_l2, dTc_l = dTc_l, QhRecycle = QhRecycle, Tair = Tair, TWaste = TWaste,
@@ -128,7 +128,7 @@ isFeasible, dailyCost, dfResult, objVal_temp,errReportStart,errReportSolved = ge
 	Qs_h_init = Qs_h_init,
 	aimObjectValue = objVal,
 )
-
+vscodedisplay(dfResult)
 errReportStart
 errSt=Dict()
 countSt=0

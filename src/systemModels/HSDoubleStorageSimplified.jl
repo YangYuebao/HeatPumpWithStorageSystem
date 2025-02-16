@@ -1,31 +1,12 @@
 
-"""
-循环差
-"""
-function cycleDiff(a::Vector)
-	return vcat(a[2:end] - a[1:end-1], a[1] - a[end])
-end
-
-"""
-设计问题：计算管道的额定流量：
-1kW的用热需求,额定的换热温差(5℃),用热温度Tuse为回水温度。假设蒸汽为饱和蒸汽,回水为饱和水,此时流量是多少？可能比实际偏大一些
-"""
-function qmperkW(Tuse::Float64, Trecycle::Float64)
-	hSupply = CoolProp.PropsSI("H", "T", Tuse + 273.15, "Q", 1, "water")
-	hRecycle = CoolProp.PropsSI("H", "T", Trecycle + 273.15, "Q", 0, "water")
-	# 当流量为1kg/s时，功率为(hSupply - hRecycle) * 1e-3 kW
-	qmperSecond = 1 / (hSupply - hRecycle) * 1e3# 每小时用热1kWh时循环水的质量流量
-	return qmperSecond# kg/s
-end
-
 
 """
 输入一定系统结构和工作参数,返回系统计算需要用到的各种向量
 """
-function generateSystemCoff(::PressedWaterDoubleStorage;
-	maxTcHigh::Real = 180.0,  # 高温热泵冷凝器温度上限
-	maxTcLow::Real = 90.0,  # 低温热泵冷凝器温度上限
-	TWaste::Real = 60.0,                  # 废热源温度
+function generateSystemCoff(::PressedWaterDoubleStorageSimplified;
+	maxTcHigh::Real = 180.0,  				# 高温热泵冷凝器温度上限
+	maxTcLow::Real = 90.0,  				# 低温热泵冷凝器温度上限
+	TWaste::Real = 60.0,                  	# 废热源温度
 	Tair::Vector = fill(25.0, 24),          # 外部环境温度
 	dTlc_he::Real = 10.0,  # 高温热泵蒸发器温度与低温热泵冷凝器温度差
 	Tuse::Real = 120.0,                     # 工厂使用温度
@@ -107,60 +88,13 @@ function generateSystemCoff(::PressedWaterDoubleStorage;
 		storageTankVolume)
 end
 
-#=
-"""
-生成无蓄热系统的初值
-"""
-function generateInitialValue(::PressedWaterDoubleStorage;
-	Tair::Vector,
-	qm::Vector,
-	maxTcLow::Real,
-	dTc_l::Real,
-	minTeh::Real,
-	dT_EvaporationStandard::Real,
-	T10::Real,
 
-	m::Int64=24
-)
-	Tair_min = minimum(Tair)# 环境最低温度
-	Te_l1 = TWaste - dTe_l1	# 低温热泵废热源蒸发器温度
-	Te_l2 = Tair .- dTe_l2	# 低温热泵空气源蒸发器温度
-	maxT3=maxTcLow-dTc_l
-	minT3=minTeh+dT_EvaporationStandard
-	qm1_init = copy(qm)
-	qm2_init = zeros(m)
-	qm3_init = zeros(m)
-
-	T3_init=fill(minT3,m)
-	T8_init=fill(T10+dT_EvaporationStandard,m)
-	Tc_l_init=T3_init.+dTc_l
-	
-
-	COPl2_init=map(i->COPl(Te_l2[i],Tc_l_init[i]),1:m)
-	COPh1_init=COPh(minT3-dT_EvaporationStandard,T10)
-
-	P_l1_init = zeros(m)
-	P_l2_init = @. qm*(cp_cs*(T3_init-dT_EvaporationStandard-T9)+latentHeat)./(COPl2_init)
-
-	P_h1_init = @. qm*(cp_cs*(T3_init-dT_EvaporationStandard-T9)+latentHeat)/(COPh1_init-1)
-	P_h2_init = zeros(m)
-	P_h3_init = zeros(m)
-	
-	Qc_l_init = P_l2_init.*COPl2_init
-	
-	Qs_l_init = cpm_l*(T3_init.-Tair_min)
-	Qs_h_init = cpm_l*(T8_init.-Tair_min)
-end
-=#
 
 """给定系统参数,求解系统成本,返回成本、热泵功率向量、蓄热量向量"""
-function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
+function generateAndSolve(::PressedWaterDoubleStorageSimplified, ::MinimizeCost;
 	COPh::Function,
 	COPh_g::Function,
 	COPh_h::Function,
-	COPl::Function,
-	COPl_g::Function,
-	COPl_h::Function,
 
 	# 总循环参数
 	T10::Real,# 供热蒸汽温度
@@ -437,11 +371,6 @@ function generateAndSolve(::PressedWaterDoubleStorage, ::MinimizeCost;
 			"热回收热泵制热量" => COPl1 .* Pl1List,
 			"空气源热泵制热量" => COPl2 .* Pl2List,
 			"低温循环水取热量" => value.(qm1 + qm3) .* (cp_cs * (T4 .- T9) .+ latentHeat),
-			"Te_l1"=>fill(Te_l1, 24),
-			"Te_l2"=>Te_l2,
-			"Te_h1_h3"=>T4,
-			"Te_h2"=>T5,
-			"Tc_h3"=>T6			
 		)
 		#CSV.write(joinpath(pwd(), "calculations", "situation6", "result.csv"), round.(dfResult, digits = 4))
 		#@info "The result is saved in $(joinpath(pwd(),"calculations","situation6","result.csv"))"

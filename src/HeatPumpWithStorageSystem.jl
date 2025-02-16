@@ -14,10 +14,12 @@ struct HeatPumpStoragePhaseChange <: EnergySystem end# 热泵+蓄热系统
 struct PressedWaterHighStorage <: EnergySystem end# 热泵+蓄热系统
 """承压水蓄热，中高温双蓄热"""
 struct PressedWaterDoubleStorage <: EnergySystem end# 双蓄热系统
+struct PressedWaterDoubleStorageSimplified <: EnergySystem end# 双蓄热系统
 
 export HeatPumpStoragePhaseChange,
 	PressedWaterHighStorage,
-	PressedWaterDoubleStorage
+	PressedWaterDoubleStorage,
+	PressedWaterDoubleStorageSimplified
 
 #双蓄系统生成COP函数
 export getCOPFunction
