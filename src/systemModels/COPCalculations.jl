@@ -210,3 +210,54 @@ function getOverlapCOP_calculation(
 
     
 end
+
+function getOverlapCOP_fixMidTemperature(
+	Tair::Vector,
+	dTair::Real,
+	dT_l::Real,
+	TWaste::Real,
+	maxTcLow::Real,
+	dTlc_he::Real,
+	maxTeh::Real,
+	maxTcHigh::Real,
+	refrigerantHigh::String,
+	refrigerantLow::String,
+	maxCOP::Real,
+	eta_s::Real,
+	COPInterpolateGap::Real,
+)
+	COPh, COPh_g, COPh_h, COPl, COPl_g, COPl_h = getCOPFunction(
+        Tair, dTair, dT_l, TWaste, maxTcLow, dTlc_he, maxTeh, maxTcHigh,
+		refrigerantHigh,
+		refrigerantLow,
+		maxCOP,
+		eta_s,
+		COPInterpolateGap,
+	)
+
+    """
+    计算总COP的变化步长
+    """
+    function getdC(Te,Tc,Tm,dT_l)
+        # 计算初始值
+        cl=COPl(Te,Tm+dT_l/2)
+        ch=COPh(Tm-dT_l/2,Tc)
+        c=cl*ch/(cl+ch-1)
+        # 计算导数
+        dcl=COPl_g(Te,Tm+dT_l/2)[2]
+        dch=COPh_g(Tm-dT_l/2,Tc)[1]
+        # 计算二阶导数
+        ddcl=COPl_h(Te,Tm+dT_l/2)[2,2]
+        ddch=COPh_h(Tm-dT_l/2,Tc)[1,1]
+        ddc=((ddcl*(ch-c)+ddch*(cl-c))+2*(dcl*dch-dc*(dcl+dch)))/(cl+ch-1)
+        
+        # 返回步长
+        return -dc/ddc
+    end
+    
+    maxTm = maxTcLow - dT_l/2
+    minTeh = maxTcLow - dTlc_he
+    minTm = minTeh + dT_l/2
+
+    
+end
