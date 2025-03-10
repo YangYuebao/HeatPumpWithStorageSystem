@@ -30,7 +30,7 @@ refR1233zdE=Refrigerant("R1233zdE", -10.0, 155.0, 20.0,155.0, 0.1)
 """读取COP文件,如果没找到文件可以自动生成"""
 function readCOPFile(r::Refrigerant;generateFile::Bool=true)
 	if isfile(r.filePath)
-		return CSV.read(fp, DataFrame)
+		return CSV.read(r.filePath, DataFrame)
 	elseif generateFile
 		return generateCOPFile(r)
 	else
@@ -62,9 +62,9 @@ function generateCOPFile(r::Refrigerant;renew=true)
 	@info "文件"*r.filePath*"不存在，开始计算"
 	TeList=collect(r.minTe:r.step:r.maxTe)
 	TcList=collect(r.minTc:r.step:r.maxTc)
-	nTc=length(TcList)
 	nTe=length(TeList)
-	COPMatrix=fill(1.0,nTc, nTe)
+	nTc=length(TcList)
+	COPMatrix=fill(9999.0,nTe, nTc)
 	Threads.@threads for (i,Tc) in enumerate(TcList)
 		for (j,Te) in enumerate(TeList[TeList .< Tc])
 			COPMatrix[i,j]=COPTe_Tc(Te, Tc, 1.0, r.refrigerant)
@@ -175,6 +175,7 @@ function getCOP_g_h(
 	COPMatrix,TeList,TcList=getCOPTable(minTe,maxTe,minTc,maxTc,refrigerant,dT)
 	COPMatrix = COPMatrix * eta_s .+ (1.0-eta_s)
 	COPMatrix[COPMatrix .>= maxCOP] .= maxCOP
+	COPMatrix[COPMatrix <= 0.0] .= maxCOP
 
 	itpCOP = interpolate(COPMatrix, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOP = scale(itpCOP, TeList, TcList)
@@ -186,9 +187,9 @@ function getCOP_g_h(
 		if x[2] > TcChangeToElec
 			return 1.0
 		end
-		if COP > maxCOP || COP <= 0
-			return maxCOP
-		end
+		# if COP > maxCOP || COP <= 0
+		# 	return maxCOP
+		# end
 		return COP
 	end
 
@@ -196,7 +197,7 @@ function getCOP_g_h(
 		Te = min(maxTe, max(minTe, x[1]))
 		Tc = min(maxTc, max(minTc, x[2]))
 		COP = sitpCOP(Te, Tc)
-		if (x[2] > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
+		if (x[2] > TcChangeToElec) #|| (COP > maxCOP) || (COP <= 0)
 			g[1], g[2] = zeros(2)
 			return nothing
 		end
@@ -208,7 +209,7 @@ function getCOP_g_h(
 		Te = min(maxTe, max(minTe, x[1]))
 		Tc = min(maxTc, max(minTc, x[2]))
 		COP = sitpCOP(Te, Tc)
-		if (x[2] > TcChangeToElec) || (COP > maxCOP) || (COP <= 0)
+		if (x[2] > TcChangeToElec) #|| (COP > maxCOP) || (COP <= 0)
 			H[1, 1], H[2, 1], _, H[2, 2] = zeros(4)
 			return nothing
 		end
@@ -251,6 +252,162 @@ function getCOPFunction(
 
 	COPl, COPl_g, COPl_h = getCOP_g_h(minTel, maxTel, minTcl, maxTcLow, refrigerantLow, maxCOP, eta_s, COPInterpolateGap)
 	return COPh, COPh_g, COPh_h,COPl, COPl_g, COPl_h
+end
+
+"""
+记录两个循环复叠的文件信息
+"""
+struct OverlapRefrigerant
+	refrigerantLow::Refrigerant	# 低温循环工质
+	refrigerantHigh::Refrigerant	# 高温循环工质
+	minTeHigh::Real
+	maxTcLow::Real
+	midTDifference::Real	#复叠温差
+	step::Real	# 插值步长
+	OverlapRefrigerant(refrigerantLow::Refrigerant,refrigerantHigh::Refrigerant,minTeHigh::Real,maxTcLow::Real,midTDifference::Real,step::Real)= maxTcLow-minTeHigh>midTDifference ? new(refrigerantLow,refrigerantHigh,minTeHigh,maxTcLow,midTDifference,step) : throw(error("蒸发器温度与冷凝温度差值必须大于复叠温差"))
+end
+
+function Base.getproperty(r::OverlapRefrigerant, s::Symbol)
+	if s == :fileName
+		temp=string.([
+			r.refrigerantLow.refrigerant,
+			r.refrigerantHigh.refrigerant,
+			r.minTeHigh,
+			r.maxTcLow,
+			r.midTDifference,
+		])
+		return join(temp,"_")*".csv"
+	elseif s == :fileNameCOP
+		return "OverlapCOP"*r.fileName
+	elseif s == :filePathCOP
+		return joinpath(pwd(),"refrigerantPropertys",r.fileNameCOP)
+	elseif s == :fileNameMidT
+		return "OverlapMidT"*r.fileName
+	elseif s == :filePathMidT
+		return joinpath(pwd(),"refrigerantPropertys",r.fileNameMidT)
+	else
+		return r.s
+	end
+end
+
+function readCOPFile(or::OverlapRefrigerant;generateFile::Bool=true)
+	if isfile(or.filePathCOP)
+		return CSV.read(or.filePathCOP, DataFrame)
+	elseif generateFile
+		return generateCOPFile(or)
+	else
+		throw(error("文件$(or.filePathCOP)不存在,使用generateCOPFile生成文件"))
+		return DataFrame()
+	end
+end
+
+"""生成COP文件"""
+function generateCOPFile(or::OverlapRefrigerant)
+	
+end
+
+"""计算给定中间温度范围内的最优COP与中间温度"""
+function generateCOP(
+	or::OverlapRefrigerant,
+	TeList::Vector,
+	TcList::Vector;
+	maxCOP::Real=21.0,
+	eta_s::Real=0.7,
+	dT::Real=0.1,
+	abserr::Real=1e-6,
+	maxIter::Int=100,
+	saveOverlapCOP::Bool=true
+)
+	if maximum(TeList) > or.minTeHigh
+		throw(error("蒸发温度范围错误"))
+	end
+	if minimum(TcList) < or.maxTcLow
+		throw(error("冷凝温度范围错误"))
+	end
+	# 读取两个循环的COP函数
+	COPl,COPl_g,COPl_h=getCOP_g_h(
+		or.refrigerantLow.minTe,
+		or.minTeHigh,
+		or.minTeHigh,
+		or.maxTcLow,
+		or.refrigerantLow,
+		maxCOP,
+		eta_s,# 绝热效率
+		dT,# 插值步长
+	)
+	COPh,COPh_g,COPh_h=getCOP_g_h(
+		or.minTeHigh,
+		or.maxTcLow,
+		or.maxTcLow,
+		or.refrigerantHigh.maxTc,
+		or.refrigerantHigh,
+		maxCOP,
+		eta_s,# 绝热效率
+		dT,# 插值步长
+	)
+	dT_l = or.midTDifference/2
+	function getCOPValues(Te,Tc,Tm)
+		cl=COPl(Te,Tm+dT_l)
+        ch=COPh(Tm-dT_l,Tc)
+        c=cl*ch/(cl+ch-1)
+		return c
+	end
+	function getStep(Te,Tc,Tm)
+        # 计算初始值
+        cl=COPl(Te,Tm+dT_l)
+        ch=COPh(Tm-dT_l,Tc)
+        c=cl*ch/(cl+ch-1)
+        # 计算导数
+        dcl=COPl_g(Te,Tm+dT_l)[2]
+        dch=COPh_g(Tm-dT_l,Tc)[1]
+        # 计算二阶导数
+        ddcl=COPl_h(Te,Tm+dT_l)[2,2]
+        ddch=COPh_h(Tm-dT_l,Tc)[1,1]
+        ddc=((ddcl*(ch-c)+ddch*(cl-c))+2*(dcl*dch-dc*(dcl+dch)))/(cl+ch-1)
+        
+        # 返回步长
+        return -dc/ddc,c
+    end
+	nTe=length(TeList)
+	nTc=length(TcList)
+	COPMatrix=zeros(nTe,nTc)
+	MidTMatrix=zeros(nTe,nTc)
+	@info "正在计算"*r.fileName*"..."
+	Threads.@threads for (j,Tc) in enumerate(TcList)
+		for (i,Te) in enumerate(TeList)
+			Tm=0.5*(or.minTeHigh+or.maxTcLow)
+			dMidT=1.0
+			count=0
+			while abs(dMidT)>abserr && count < maxIter
+				dMidT=getStep(Te,Tc,Tm)
+				if dMidT >0 && Tm > or.maxTcLow - dT_l - abserr
+					Tm=or.maxTcLow
+					break
+				end
+				if dMidT < 0 && Tm < or.minTeHigh + dT_l + abserr
+					Tm=or.minTeHigh
+					break
+				end
+				Tm=max(or.minTeHigh + dT_l,min(Tm+dMidT,or.maxTcLow - dT_l))
+				count+=1
+			end
+			MidTMatrix[i,j]=Tm
+			COPMatrix[i,j]=getCOPValues(Te,Tc,Tm)
+		end
+	end
+
+	if saveOverlapCOP
+		dfCOP=DataFrame(COPMatrix, TcList)
+		insertcols!(dfCOP,1,:Te=>TeList)
+		CSV.write(r.filePathCOP, dfCOP)
+
+		dfMidT=DataFrame(MidTMatrix, TcList)
+		insertcols!(dfMidT,1,:Te=>TeList)
+		CSV.write(r.filePathMidT, dfMidT)
+		@info "文件"*r.fileName*"已生成"
+	end
+	
+	return dfCOP,dfMidT
 end
 
 """
