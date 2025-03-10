@@ -1,7 +1,86 @@
 """
+记录制冷剂的文件信息
+"""
+struct Refrigerant
+	refrigerant::String
+	minTe::Real
+	maxTe::Real
+	minTc::Real
+	maxTc::Real
+	step::Real
+end
+
+function Base.getproperty(r::Refrigerant, s::Symbol)
+	if s == :filePath
+		return joinpath(pwd(),"refrigerantPropertys",r.fileName)
+	elseif s== :fileName
+		fn=fieldnames(Refrigerant)
+		temp=map(x->r.x,fn) .|> string
+		return join(temp,"_")*".csv"
+	else
+		return r.s
+	end
+end
+
+refR134a=Refrigerant("R134a", -10.0, 80.0, 20.0,100.0, 0.1)
+refWater=Refrigerant("water", 70.0, 190.0, 70.0, 190.0, 0.1)
+refNH3=Refrigerant("Ammonia", -10.0, 125.0, 20.0,125.0, 0.1)
+refR1233zdE=Refrigerant("R1233zdE", -10.0, 155.0, 20.0,155.0, 0.1)
+
+"""读取COP文件,如果没找到文件可以自动生成"""
+function readCOPFile(r::Refrigerant;generateFile::Bool=true)
+	if isfile(r.filePath)
+		return CSV.read(fp, DataFrame)
+	elseif generateFile
+		return generateCOPFile(r)
+	else
+		throw(error("文件$(r.filePath)不存在,使用generateCOPFile生成文件"))
+		return DataFrame()
+	end
+end
+
+"""生成记录COP的文件路径"""
+function generateCOPFilePath()
+	fp=joinpath(pwd(), "refrigerantPropertys")
+	if !isdir(fp)
+		@info "生成目录"*fp
+		mkdir(fp)
+	end
+	@info "目录"*fp*"已存在"
+end
+
+"""生成记录COP的文件路径"""
+function generateCOPFile(r::Refrigerant;renew=true)
+	generateCOPFilePath()
+	if !renew && isfile(r.filePath)
+		@info "文件"*r.filePath*"已存在"
+		return
+	end
+	CoolProp.PropsSI("H", "T", 100 + 273.15, "Q", 1, "water")
+
+	# 计算并生成COP文件
+	@info "文件"*r.filePath*"不存在，开始计算"
+	TeList=collect(r.minTe:r.step:r.maxTe)
+	TcList=collect(r.minTc:r.step:r.maxTc)
+	nTc=length(TcList)
+	nTe=length(TeList)
+	COPMatrix=fill(1.0,nTc, nTe)
+	Threads.@threads for (i,Tc) in enumerate(TcList)
+		for (j,Te) in enumerate(TeList[TeList .< Tc])
+			COPMatrix[i,j]=COPTe_Tc(Te, Tc, 1.0, r.refrigerant)
+		end
+	end
+	df=DataFrame(COPMatrix, TcList)
+	insertcols!(df,1,:Te=>TeList)
+	CSV.write(r.filePath, df)
+	@info "文件"*r.filePath*"已生成"
+	return df
+end
+
+"""
 基于物性的COP计算
 """
-function COPTe_Tc(Te, Tc, eta_s, refrigerant)
+function COPTe_Tc(Te::Real, Tc::Real, eta_s::Real, refrigerant::String)
 	h1 = CoolProp.PropsSI("H", "T", Te + 273.15, "Q", 1, refrigerant)
 	s1 = CoolProp.PropsSI("S", "T", Te + 273.15, "Q", 1, refrigerant)
 	p2 = CoolProp.PropsSI("P", "T", Tc + 273.15, "Q", 1, refrigerant)
@@ -11,23 +90,16 @@ function COPTe_Tc(Te, Tc, eta_s, refrigerant)
 	return (h1 - h3) / wt + 1 # 制热循环效率
 end
 
-
-"""
-生成COP的函数、COP的梯度和海森矩阵
-"""
-function getCOP_g_h(
-	minTe::Real,# 蒸发温度下限
-	maxTe::Real,# 蒸发温度上限
-	minTc::Real,# 冷凝温度下限
-	maxTc::Real,# 冷凝温度上限
-	refrigerant::String,# 工质
-	maxCOP::Real,# 最大COP
-	eta_s::Real,# 绝热效率
-	dT::Real,# 插值步长
+"""在原表的基础上取出目标温度范围和步长的表格"""
+function getCOPTable(
+	minTe::Real,
+	maxTe::Real,
+	minTc::Real,
+	maxTc::Real,
+	refrigerant::Refrigerant,
+	dT::Real,
 )
-	TcChangeToElec = maxTc# 冷凝温度转换到电热的阈值
-	# 生成基于物性的COP计算函数
-	# 然后进行样条插值,并计算梯度和海森矩阵
+	dT=0.1
 	minTe = floor(minTe, digits = 1)
 	maxTe = ceil(maxTe, digits = 1)
 	minTc = floor(minTc, digits = 1)
@@ -39,45 +111,70 @@ function getCOP_g_h(
 	step = round(Int, dT * 10)
 
 	#Threads.@threads for (j,Tc) in enumerate(TcList)
-	if refrigerant in ["R134a"]
-        fp=joinpath(pwd(), "src", "refrigerantPropertys", "R134a_10_80_20_100_0.1.csv")
-		if isfile(fp)
-            dfTemp = CSV.read(fp, DataFrame)
-        else
-            throw(error("文件$(fp)不存在"))
-        end
-		iStart = round(Int, (minTe - 10) * 10 + 1)
-		iEnd = round(Int, (maxTe - 10) * 10 + 1)
-		jStart = round(Int, (minTc - 20) * 10 + 1)
-		jEnd = round(Int, (maxTc - 20) * 10 + 1)
-	elseif refrigerant in ["water", "Water"]
-        fp=joinpath(pwd(), "src", "refrigerantPropertys", "water_70_190_70_190_0.1.csv")
-		if isfile(fp)
-            dfTemp = CSV.read(fp, DataFrame)
-        else
-            throw(error("文件$(fp)不存在"))
-        end
-		iStart = round(Int, (minTe - 70) * 10 + 1)
-		iEnd = round(Int, (maxTe - 70) * 10 + 1)
-		jStart = round(Int, (minTc - 70) * 10 + 1)
-		jEnd = round(Int, (maxTc - 70) * 10 + 1)
-		#@info any(isnan.(dfTemp))
-	end
-	# println(minTe," ", maxTe," ", minTc," ", maxTc)
-	# println(size(dfTemp))
-	# println(iStart," ", iEnd," ", jStart," ", jEnd," ", step)
-	COPMatrix = Matrix(dfTemp[iStart:step:iEnd, jStart:step:jEnd]) * eta_s .+ 1.0
+	dfTemp=readCOPFile(refrigerant)
+	iStart = round(Int, (minTe - refrigerant.minTe) * 10 + 1)
+	iEnd = round(Int, (maxTe - refrigerant.minTe) * 10 + 1)
+	jStart = round(Int, (minTc - refrigerant.minTc) * 10 + 1)
+	jEnd = round(Int, (maxTc - refrigerant.minTc) * 10 + 1)
+	COPMatrix = Matrix(dfTemp[iStart:step:iEnd, jStart:step:jEnd])
+	return COPMatrix,TeList,TcList
+end
 
-	m, n = size(COPMatrix)
-	count = 0
-	for j ∈ 1:n
-		for i ∈ 1:m
-			if COPMatrix[i, j] >= maxCOP || COPMatrix[i, j] <= 1
-				COPMatrix[i, j] = maxCOP
-			end
-			count += 1
+"""生成COP的线性插值函数"""
+function getCOP(
+	minTe::Real,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
+	maxTe::Real,# 蒸发温度上限
+	minTc::Real,# 冷凝温度下限
+	maxTc::Real,# 冷凝温度上限
+	refrigerant::Refrigerant,# 工质
+	maxCOP::Real,# 最大COP
+	eta_s::Real,# 绝热效率
+	dT::Real,# 插值步长
+)
+	TcChangeToElec = maxTc# 冷凝温度转换到电热的阈值
+	# 生成基于物性的COP计算函数
+	# 然后进行样条插值,并计算梯度和海森矩阵
+	COPMatrix,TeList,TcList=getCOPTable(minTe,maxTe,minTc,maxTc,refrigerant,dT)
+	COPMatrix = COPMatrix * eta_s .+ (1.0-eta_s)
+	COPMatrix[COPMatrix .>= maxCOP] .= maxCOP
+
+	sitpCOP = linear_interpolation((TeList,TcList),COPMatrix)
+	#println("minTe: $minTe, maxTe: $maxTe, minTc: $minTc, maxTc: $maxTc ")
+	function COPfunction(x::T...)::T where {T <: Real}
+		Te = min(maxTe, max(minTe, x[1]))
+		Tc = min(maxTc, max(minTc, x[2]))
+		COP = sitpCOP(Te, Tc)
+		if x[2] > TcChangeToElec
+			return 1.0
 		end
+		if COP > maxCOP || COP <= 0
+			return maxCOP
+		end
+		return COP
 	end
+
+	return COPfunction
+end
+
+"""
+生成COP的函数、COP的梯度和海森矩阵
+"""
+function getCOP_g_h(
+	minTe::Real,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
+	maxTe::Real,# 蒸发温度上限
+	minTc::Real,# 冷凝温度下限
+	maxTc::Real,# 冷凝温度上限
+	refrigerant::Refrigerant,# 工质
+	maxCOP::Real,# 最大COP
+	eta_s::Real,# 绝热效率
+	dT::Real,# 插值步长
+)
+	TcChangeToElec = maxTc# 冷凝温度转换到电热的阈值
+	# 生成基于物性的COP计算函数
+	# 然后进行样条插值,并计算梯度和海森矩阵
+	COPMatrix,TeList,TcList=getCOPTable(minTe,maxTe,minTc,maxTc,refrigerant,dT)
+	COPMatrix = COPMatrix * eta_s .+ (1.0-eta_s)
+	COPMatrix[COPMatrix .>= maxCOP] .= maxCOP
 
 	itpCOP = interpolate(COPMatrix, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOP = scale(itpCOP, TeList, TcList)
@@ -125,7 +222,6 @@ function getCOP_g_h(
 	return COPfunction, COPfunction_g, COPfunction_h
 end
 
-
 """
 生成系统的6个COP函数
 """
@@ -158,7 +254,7 @@ function getCOPFunction(
 end
 
 """
-计算复叠系统的COP
+计算双循环复叠系统的最优COP
 """
 function getOverlapCOP_calculation(
 	Tair::Vector,
@@ -211,6 +307,9 @@ function getOverlapCOP_calculation(
     
 end
 
+"""
+计算双循环复叠系统固定中间温度的COP
+"""
 function getOverlapCOP_fixMidTemperature(
 	Tair::Vector,
 	dTair::Real,
