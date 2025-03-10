@@ -11,14 +11,14 @@ struct Refrigerant
 end
 
 function Base.getproperty(r::Refrigerant, s::Symbol)
-	if s == :filePath
+	if s === :filePath
 		return joinpath(pwd(),"refrigerantPropertys",r.fileName)
-	elseif s== :fileName
+	elseif s === :fileName
 		fn=fieldnames(Refrigerant)
-		temp=map(x->r.x,fn) .|> string
+		temp=map(x->getfield(r,x),fn) .|> string
 		return join(temp,"_")*".csv"
 	else
-		return r.s
+		return getfield(r,s)
 	end
 end
 
@@ -50,7 +50,7 @@ function generateCOPFilePath()
 end
 
 """生成记录COP的文件路径"""
-function generateCOPFile(r::Refrigerant;renew=true)
+function generateCOPFile(r::Refrigerant;renew=false)
 	generateCOPFilePath()
 	if !renew && isfile(r.filePath)
 		@info "文件"*r.filePath*"已存在"
@@ -65,12 +65,13 @@ function generateCOPFile(r::Refrigerant;renew=true)
 	nTe=length(TeList)
 	nTc=length(TcList)
 	COPMatrix=fill(9999.0,nTe, nTc)
-	Threads.@threads for (i,Tc) in enumerate(TcList)
-		for (j,Te) in enumerate(TeList[TeList .< Tc])
+	Threads.@threads for j in 1:nTc
+		Tc=TcList[j]
+		for (i,Te) in enumerate(TeList[TeList .< Tc])
 			COPMatrix[i,j]=COPTe_Tc(Te, Tc, 1.0, r.refrigerant)
 		end
 	end
-	df=DataFrame(COPMatrix, TcList)
+	df=DataFrame(COPMatrix, string.(TcList))
 	insertcols!(df,1,:Te=>TeList)
 	CSV.write(r.filePath, df)
 	@info "文件"*r.filePath*"已生成"
@@ -114,8 +115,8 @@ function getCOPTable(
 	dfTemp=readCOPFile(refrigerant)
 	iStart = round(Int, (minTe - refrigerant.minTe) * 10 + 1)
 	iEnd = round(Int, (maxTe - refrigerant.minTe) * 10 + 1)
-	jStart = round(Int, (minTc - refrigerant.minTc) * 10 + 1)
-	jEnd = round(Int, (maxTc - refrigerant.minTc) * 10 + 1)
+	jStart = round(Int, (minTc - refrigerant.minTc) * 10 + 2)	# 第一列是Te
+	jEnd = round(Int, (maxTc - refrigerant.minTc) * 10 + 2)
 	COPMatrix = Matrix(dfTemp[iStart:step:iEnd, jStart:step:jEnd])
 	return COPMatrix,TeList,TcList
 end
@@ -175,7 +176,7 @@ function getCOP_g_h(
 	COPMatrix,TeList,TcList=getCOPTable(minTe,maxTe,minTc,maxTc,refrigerant,dT)
 	COPMatrix = COPMatrix * eta_s .+ (1.0-eta_s)
 	COPMatrix[COPMatrix .>= maxCOP] .= maxCOP
-	COPMatrix[COPMatrix <= 0.0] .= maxCOP
+	COPMatrix[COPMatrix .<= 0.0] .= maxCOP
 
 	itpCOP = interpolate(COPMatrix, BSpline(Cubic(Line(OnGrid()))))
 	sitpCOP = scale(itpCOP, TeList, TcList)
@@ -267,8 +268,13 @@ struct OverlapRefrigerant
 	OverlapRefrigerant(refrigerantLow::Refrigerant,refrigerantHigh::Refrigerant,minTeHigh::Real,maxTcLow::Real,midTDifference::Real,step::Real)= maxTcLow-minTeHigh>midTDifference ? new(refrigerantLow,refrigerantHigh,minTeHigh,maxTcLow,midTDifference,step) : throw(error("蒸发器温度与冷凝温度差值必须大于复叠温差"))
 end
 
+R134a_Water=OverlapRefrigerant(refR134a,refWater,79.0,90.0,3.0,0.1)
+NH3_Water=OverlapRefrigerant(refNH3,refWater,95.0,118.0,3.0,0.1)
+R1233zdE_Water=OverlapRefrigerant(refR1233zdE,refWater,95.0,118.0,3.0,0.1)
+
+
 function Base.getproperty(r::OverlapRefrigerant, s::Symbol)
-	if s == :fileName
+	if s === :fileName
 		temp=string.([
 			r.refrigerantLow.refrigerant,
 			r.refrigerantHigh.refrigerant,
@@ -277,16 +283,16 @@ function Base.getproperty(r::OverlapRefrigerant, s::Symbol)
 			r.midTDifference,
 		])
 		return join(temp,"_")*".csv"
-	elseif s == :fileNameCOP
+	elseif s === :fileNameCOP
 		return "OverlapCOP"*r.fileName
-	elseif s == :filePathCOP
+	elseif s === :filePathCOP
 		return joinpath(pwd(),"refrigerantPropertys",r.fileNameCOP)
-	elseif s == :fileNameMidT
+	elseif s === :fileNameMidT
 		return "OverlapMidT"*r.fileName
-	elseif s == :filePathMidT
+	elseif s === :filePathMidT
 		return joinpath(pwd(),"refrigerantPropertys",r.fileNameMidT)
 	else
-		return r.s
+		return getfield(r,s)
 	end
 end
 
@@ -303,7 +309,17 @@ end
 
 """生成COP文件"""
 function generateCOPFile(or::OverlapRefrigerant)
-	
+	generateCOP(
+		or,
+		collect(or.refrigerantLow.minTe:or.step:or.minTeHigh),
+		collect(or.maxTcLow:or.step:or.refrigerantHigh.maxTc);
+		maxCOP=21.0,
+		eta_s=0.7,
+		dT=0.1,
+		abserr=1e-6,
+		maxIter=100,
+		saveOverlapCOP=true
+	)
 end
 
 """计算给定中间温度范围内的最优COP与中间温度"""
@@ -335,6 +351,7 @@ function generateCOP(
 		eta_s,# 绝热效率
 		dT,# 插值步长
 	)
+	# 这段代码有问题
 	COPh,COPh_g,COPh_h=getCOP_g_h(
 		or.minTeHigh,
 		or.maxTcLow,
@@ -358,11 +375,19 @@ function generateCOP(
         ch=COPh(Tm-dT_l,Tc)
         c=cl*ch/(cl+ch-1)
         # 计算导数
-        dcl=COPl_g(Te,Tm+dT_l)[2]
-        dch=COPh_g(Tm-dT_l,Tc)[1]
+		g=zeros(2)
+        COPl_g(g,Te,Tm+dT_l)
+		dcl=g[2]
+        COPh_g(g,Tm-dT_l,Tc)	
+		dch=g[1]
+
+		dc=(dcl*(ch-c)+dch*(cl-c))/(cl+ch-1)
         # 计算二阶导数
-        ddcl=COPl_h(Te,Tm+dT_l)[2,2]
-        ddch=COPh_h(Tm-dT_l,Tc)[1,1]
+		h=zeros(2,2)
+        COPl_h(h,Te,Tm+dT_l)
+		ddcl=h[2,2]
+        COPh_h(h,Tm-dT_l,Tc)
+		ddch=h[1,1]
         ddc=((ddcl*(ch-c)+ddch*(cl-c))+2*(dcl*dch-dc*(dcl+dch)))/(cl+ch-1)
         
         # 返回步长
@@ -373,7 +398,9 @@ function generateCOP(
 	COPMatrix=zeros(nTe,nTc)
 	MidTMatrix=zeros(nTe,nTc)
 	@info "正在计算"*r.fileName*"..."
-	Threads.@threads for (j,Tc) in enumerate(TcList)
+	#Threads.@threads for j in 1:nTc
+	for j in 1:nTc
+		Tc=TcList[j]
 		for (i,Te) in enumerate(TeList)
 			Tm=0.5*(or.minTeHigh+or.maxTcLow)
 			dMidT=1.0
@@ -397,11 +424,11 @@ function generateCOP(
 	end
 
 	if saveOverlapCOP
-		dfCOP=DataFrame(COPMatrix, TcList)
+		dfCOP=DataFrame(COPMatrix, string.(TcList))
 		insertcols!(dfCOP,1,:Te=>TeList)
 		CSV.write(r.filePathCOP, dfCOP)
 
-		dfMidT=DataFrame(MidTMatrix, TcList)
+		dfMidT=DataFrame(MidTMatrix, string.(TcList))
 		insertcols!(dfMidT,1,:Te=>TeList)
 		CSV.write(r.filePathMidT, dfMidT)
 		@info "文件"*r.fileName*"已生成"
@@ -468,52 +495,66 @@ end
 计算双循环复叠系统固定中间温度的COP
 """
 function getOverlapCOP_fixMidTemperature(
-	Tair::Vector,
-	dTair::Real,
-	dT_l::Real,
-	TWaste::Real,
-	maxTcLow::Real,
-	dTlc_he::Real,
-	maxTeh::Real,
-	maxTcHigh::Real,
-	refrigerantHigh::String,
-	refrigerantLow::String,
-	maxCOP::Real,
-	eta_s::Real,
-	COPInterpolateGap::Real,
+	or::OverlapRefrigerant,
+	Tm::Real;
+	maxCOP::Real,# 最大COP
+	eta_s::Real,# 绝热效率
+	dT::Real,# 插值步长
 )
-	COPh, COPh_g, COPh_h, COPl, COPl_g, COPl_h = getCOPFunction(
-        Tair, dTair, dT_l, TWaste, maxTcLow, dTlc_he, maxTeh, maxTcHigh,
-		refrigerantHigh,
-		refrigerantLow,
-		maxCOP,
-		eta_s,
-		COPInterpolateGap,
+	
+	COPl=getCOP(
+		or.refrigerantLow.minTe,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
+		or.minTeHigh,# 蒸发温度上限
+		or.minTeHigh,# 冷凝温度下限
+		or.maxTcLow,# 冷凝温度上限
+		or.refrigerantLow,# 工质
+		maxCOP,# 最大COP
+		eta_s,# 绝热效率
+		dT# 插值步长
 	)
+	COPh=getCOP(
+		or.minTeHigh,# 蒸发温度下限
+		or.maxTcLow,# 蒸发温度上限
+		or.maxTcLow,# 冷凝温度下限
+		or.refrigerantHigh.maxTc,
+		or.refrigerantHigh,# 工质
+		maxCOP,# 最大COP
+		eta_s,# 绝热效率
+		dT# 插值步长
+	)
+	TeList=or.refrigerantLow.minTe:dT:or.minTeHigh
+	TcList=or.maxTcLow:dT:or.refrigerantHigh.maxTc
+	nTe=length(TeList)
+	nTc=length(TcList)
+	COPMatrix=zeros(nTe,nTc)
+	tDiff=or.midTDifference/2
+	#Threads.@threads for j in 1:nTc
+	for j in 1:nTc
+		for i in 1:nTe
+			cl=COPl(TeList[i],Tm+tDiff)
+			ch=COPh(Tm-tDiff,TcList[j])
+			COPMatrix[i,j]=cl*ch/(cl+ch-1)
+		end
+	end
 
-    """
-    计算总COP的变化步长
-    """
-    function getdC(Te,Tc,Tm,dT_l)
-        # 计算初始值
-        cl=COPl(Te,Tm+dT_l/2)
-        ch=COPh(Tm-dT_l/2,Tc)
-        c=cl*ch/(cl+ch-1)
-        # 计算导数
-        dcl=COPl_g(Te,Tm+dT_l/2)[2]
-        dch=COPh_g(Tm-dT_l/2,Tc)[1]
-        # 计算二阶导数
-        ddcl=COPl_h(Te,Tm+dT_l/2)[2,2]
-        ddch=COPh_h(Tm-dT_l/2,Tc)[1,1]
-        ddc=((ddcl*(ch-c)+ddch*(cl-c))+2*(dcl*dch-dc*(dcl+dch)))/(cl+ch-1)
-        
-        # 返回步长
-        return -dc/ddc
-    end
-    
-    maxTm = maxTcLow - dT_l/2
-    minTeh = maxTcLow - dTlc_he
-    minTm = minTeh + dT_l/2
+	sitpCOP = linear_interpolation((TeList,TcList),COPMatrix)
+	minTe=or.refrigerantLow.minTe
+	maxTe=or.minTeHigh
+	minTc=or.maxTcLow
+	maxTc=or.refrigerantHigh.maxTc
+	#println("minTe: $minTe, maxTe: $maxTe, minTc: $minTc, maxTc: $maxTc ")
+	function COPfunction(x::T...)::T where {T <: Real}
+		Te = min(maxTe, max(minTe, x[1]))
+		Tc = min(maxTc, max(minTc, x[2]))
+		COP = sitpCOP(Te, Tc)
+		if x[2] > maxTc
+			return 1.0
+		end
+		if COP > maxCOP || COP <= 0
+			return maxCOP
+		end
+		return COP
+	end
 
-    
+	return COPfunction
 end

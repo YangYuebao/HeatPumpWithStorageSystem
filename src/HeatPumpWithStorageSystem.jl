@@ -23,9 +23,6 @@ export HeatPumpStoragePhaseChange,
 	PressedWaterDoubleStorageSimplified,
 	PressedWaterDoubleStorageOneCompressor
 
-#双蓄系统生成COP函数
-export getCOPFunction
-
 abstract type SystemObjectiveType end
 struct MinimizeCost <: SystemObjectiveType end# 最小化成本
 struct MinimizeEnergyCost <: SystemObjectiveType end# 最小化能耗
@@ -42,6 +39,18 @@ dirname = joinpath(pwd(), "src", "systemModels")
 for file in readdir(dirname)
 	include(joinpath(dirname, file))
 end
+
+export Refrigerant,OverlapRefrigerant
+export readCOPFile,generateCOPFile,getCOP,getCOP_g_h
+export generateCOP,getOverlapCOP_fixMidTemperature
+
+# 预设的制冷剂
+export refR134a,refWater,refNH3,refR1233zdE
+# 预设的复叠循环
+export R134a_Water,NH3_Water,R1233zdE_Water
+
+#双蓄系统生成COP函数
+export getCOPFunction
 
 export generateSystemCoff, generateAndSolve
 
