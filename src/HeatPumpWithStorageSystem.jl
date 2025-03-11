@@ -52,6 +52,9 @@ export R134a_Water,NH3_Water,R1233zdE_Water
 #双蓄系统生成COP函数
 export getCOPFunction
 
+# 古老的计算程序
 export generateSystemCoff, generateAndSolve
+
+export generateGridPriceFunction,generateLoadFunction,generateAreaTemperatureFunction
 
 end # module HeatPumpWithStorageSystem
