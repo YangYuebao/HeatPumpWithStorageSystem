@@ -55,6 +55,10 @@ export getCOPFunction
 # 古老的计算程序
 export generateSystemCoff, generateAndSolve
 
+# 根据向量生成函数，用于生成价格函数，负载函数，区域温度函数
 export generateGridPriceFunction,generateLoadFunction,generateAreaTemperatureFunction
+
+# 导出动态规划求解单压缩机系统的类型
+export NoSimplify,ConstloadandArea
 
 end # module HeatPumpWithStorageSystem
