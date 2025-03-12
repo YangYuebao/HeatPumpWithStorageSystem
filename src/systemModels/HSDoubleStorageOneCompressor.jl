@@ -23,9 +23,9 @@ functionInterpolationGenerator(list::Vector, duration::Real, ::BackwardGenerateC
 function functionInterpolationGenerator(list::Vector, duration::Real, ::LinearGenerate)
 	n = length(list)
 	if n == 1
-		list = [list[1],list[1]]
+		list = [list[1], list[1]]
 	end
-	n=2
+	n = 2
 	tList = collect(range(0, stop = duration, length = n))
 	sitpCOP = linear_interpolation(tList, list)
 	function f(x::Real)
@@ -68,7 +68,7 @@ end
 输入一定系统结构和工作参数,返回系统计算需要用到的各种向量
 """
 function generateSystemCoff(::PressedWaterDoubleStorageOneCompressor;
-	overlapRefrigerant::OverlapRefrigerant = NH3_Water,	# 复叠工质
+	overlapRefrigerant::OverlapRefrigerant = NH3_Water,# 复叠工质
 	maxTcHigh::Real = 180.0,  # 高温热泵冷凝器温度上限
 	TCompressorIn::Real = 115.0,# 中间温度
 	TWaste::Real = 60.0,                  # 废热源温度
@@ -78,24 +78,24 @@ function generateSystemCoff(::PressedWaterDoubleStorageOneCompressor;
 	heatStorageCapacity::Real = 6.0,        # 蓄热量kWh(承压水蓄热)
 	TstorageTankMax::Real = 220.0,          # 蓄热罐的最高温度
 	maxheatStorageInputHour::Real = 4,      # 蓄热充满时长
-	dT_EvaporationStandard::Real = 5.0,		# 全蒸温差
+	dT_EvaporationStandard::Real = 5.0,# 全蒸温差
 	heatConsumptionPower::Real = 1.0,       # 每小时用热功率kW
 	workingStartHour::Int = 8,              # 生产开始时间
 	workingHours::Int = 16,                 # 每日工作小时数
 	heatPumpServiceCoff::Real = 1.2,        # 热泵功率服务系数
-	elecHeatServiceCoff::Real = 1.5,		# 电锅炉服务系数
+	elecHeatServiceCoff::Real = 1.5,# 电锅炉服务系数
 	hourlyTariff::Vector = fill(0.7, 24),   # 电价向量
 )
 	# 首先生产COP函数
-	COPOverlap=getOverlapCOP_fixMidTemperature(
+	COPOverlap = getOverlapCOP_fixMidTemperature(
 		overlapRefrigerant,
-		TCompressorIn+overlapRefrigerant.midTDifference/2;
-		maxCOP=21,# 最大COP
-		eta_s=0.7,# 绝热效率
-		dT=0.1,# 插值步长
+		TCompressorIn + overlapRefrigerant.midTDifference / 2;
+		maxCOP = 21,# 最大COP
+		eta_s = 0.7,# 绝热效率
+		dT = 0.1,# 插值步长
 	)
-	
-	COPWater=getCOP(
+
+	COPWater = getCOP(
 		Trecycle,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
 		maxTcHigh,# 蒸发温度上限
 		Trecycle,# 冷凝温度下限
@@ -118,14 +118,14 @@ function generateSystemCoff(::PressedWaterDoubleStorageOneCompressor;
 	end
 
 	# 计算热泵基础功率和实际配置功率
-	P1base=heatConsumptionPower/COPOverlap(TWaste, Tuse)
-	PheatPumpMax=P1base*heatPumpServiceCoff
-	PelecHeatMax=heatConsumptionPower*elecHeatServiceCoff
+	P1base = heatConsumptionPower / COPOverlap(TWaste, Tuse)
+	PheatPumpMax = P1base * heatPumpServiceCoff
+	PelecHeatMax = heatConsumptionPower * elecHeatServiceCoff
 
 	# 生成需求与环境函数
-	hourlyTariffFunction=generateGridPriceFunction(hourlyTariff,24)
-	heatConsumptionPowerFunction=generateLoadFunction([heatConsumptionPower], 24)
-	TairFunction=generateAreaTemperatureFunction([Tair], 24)
+	hourlyTariffFunction = generateGridPriceFunction(hourlyTariff, 24)
+	heatConsumptionPowerFunction = generateLoadFunction([heatConsumptionPower], 24)
+	TairFunction = generateAreaTemperatureFunction([Tair], 24)
 
 	#=
 	heatConsumptionPowerList = zeros(24)
@@ -155,7 +155,7 @@ function generateSystemCoff(::PressedWaterDoubleStorageOneCompressor;
 	# 其它参数:hourlyTariffList,heatConsumptionPowerList
 	TcChangeToElec = maxTcHigh
 
-	return COPOverlap,COPWater,
+	return COPOverlap, COPWater,
 	hourlyTariffFunction, heatConsumptionPowerFunction, TairFunction,
 	Tuse, TCompressorIn,
 	dT_EvaporationStandard,
@@ -169,21 +169,17 @@ abstract type SimplifiedType end
 struct NoSimplify <: SimplifiedType end
 struct ConstloadandArea <: SimplifiedType end
 
-"""给定系统参数,求解系统成本,返回成本、热泵功率向量、蓄热量向量"""
-function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost,::ConstloadandArea;
+"""计算状态转移成本矩阵"""
+function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 	COPOverlap::Function,
 	COPWater::Function,
-	hourlyTariffFunction::Function,   # 电价函数
-	heatConsumptionPowerFunction::Function,  # 用热负载函数
-	TairFunction::Function,# 环境温度函数
-
+	heatLoad::Real,#热负荷
+	Tair::Real,# 外部环境温度
 	# 总循环参数
 	Tuse::Real,# 供热蒸汽温度
-	TCompressorIn::Real,# 中间级温度
 	dT_EvaporationStandard::Real,#全蒸温差
 	latentHeat::Real,# 汽化潜热
 	cp_cw::Real,# 循环水定压热容
-	cp_cs::Real,# 蒸汽定压热容 cp cycled steam
 	TcChangeToElec::Real,
 	TWaste::Real,# 废热回收蒸发器温度
 
@@ -191,31 +187,22 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	cpm_h::Real,# 高温蓄热热容
 
 	# 设备运行约束
-	TstorageTankMax::Real,# 蓄热罐的最高温度
 	PheatPumpMax::Real,# 热泵最大功率
 	PelecHeatMax::Real,# 电锅炉最大功率
 	# 求解参数
-	dT::Real = 0.1,# 状态参数高温蓄热温度离散步长
-	dt::Real = 1 / 6,# 时间步长
+	TsList::Vector,# 状态参数高温蓄热温度列表
+	dt::Real=0.1,# 时间步长
 )
 	COP1 = COPOverlap(TWaste, Tuse)
 	COP2 = COPWater
 	COP3 = COPOverlap
 
-
-	heatLoad = heatConsumptionPowerFunction(0.0)
-	Tair = TairFunction(0.0)
-
-	TsList = TCompressorIn+dT_EvaporationStandard:dT:TstorageTankMax
-	tList = 0:dt:24
 	nT = length(TsList)# 温度步数	
-	nt = length(tList)# 时间步数
-	TsMatrix = zeros(nT, nt)# 存储状态参数：高温蓄热温度
 
 	#C[i,j]表示温度从TsList[i]到TsList[j]时的最低功率；在负载、环境不变的情况下，C[i,j]是不变的
 	C = fill(99.0, nT, nT)# 状态转移矩阵
-	TsDecreaseIndexList = zeros(Int,nT)# 记录温度下降最多偏移的index
-	TsIncreaseIndexList = zeros(Int,nT)# 记录温度上升最多偏移的index
+	TsDecreaseIndexList = zeros(Int, nT)# 记录温度下降最多偏移的index
+	TsIncreaseIndexList = zeros(Int, nT)# 记录温度上升最多偏移的index
 
 	# 只用热泵供热时的功率
 	P1Only = heatLoad / COP1# 只用热泵供热时的功率
@@ -288,7 +275,9 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 		while flag && j < nT
 			if TsList[j] <= Tuse - dT_EvaporationStandard
 				C1, flag = powerCalculate_lowTs(TsList[j], TsList[i], dt)
-				if flag C[i, j]=C1 end
+				if flag
+					C[i, j] = C1
+				end
 				#C[i, j] = flag ? C1 : 99
 			elseif TsList[i] < Tuse - dT_EvaporationStandard < TsList[j]
 				dt1 = (Tuse - dT_EvaporationStandard - TsList[i]) / (TsList[j] - TsList[i]) * dt
@@ -296,25 +285,151 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 				C1, flag1 = powerCalculate_lowTs(Tuse - dT_EvaporationStandard, TsList[i], dt1)
 				C2, flag2 = powerCalculate_highTs(TsList[j], Tuse - dT_EvaporationStandard, dt2)
 				flag = flag1 && flag2
-				if flag C[i, j]=C1+C2 end
+				if flag
+					C[i, j] = C1 + C2
+				end
 			elseif TsList[i] >= Tuse - dT_EvaporationStandard
 				C1, flag = powerCalculate_highTs(TsList[j], TsList[i], dt)
-				if flag C[i, j]=C1 end
+				if flag
+					C[i, j] = C1
+				end
 			end
 			j += 1
 		end
 		TsIncreaseIndexList[i] = flag ? j - 1 - i : j - 2 - i
 	end
-	
+
+	return C, TsDecreaseIndexList, TsIncreaseIndexList
+end
+
+"""正向计算一次动态规划"""
+function forwardSolve(
+	valueList::Vector,	# 最优成本
+	costMatrix::Matrix, # 状态转移成本矩阵
+	TsDecreaseIndex::Int,# 温度下降最多偏移的index
+	TsIncreaseIndex::Int	# 温度上升最多偏移的index
+)
+	nT=length(valueList)
+	valueListNext=fill(99.0, nT)
+	lastTsIndex=zeros(nT)
+	for j ∈ 1:nT
+		for i ∈ j-TsIncreaseIndex:j+TsDecreaseIndex
+			if i < 1 || i > nT
+				continue
+			end
+			if valueList[i] + costMatrix[i, j] < valueListNext[j]
+				valueListNext[j] = valueList[i] + costMatrix[i, j]
+				lastTsIndex[j] = i
+			end
+		end
+	end
+	return valueListNext,lastTsIndex
+end
+
+
+"""给定系统参数,求解系统成本,返回成本、热泵功率向量、蓄热量向量"""
+function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost, ::ConstloadandArea;
+	COPOverlap::Function,
+	COPWater::Function,
+	hourlyTariffFunction::Function,   # 电价函数
+	heatConsumptionPowerFunction::Function,  # 用热负载函数
+	TairFunction::Function,# 环境温度函数
+
+	# 总循环参数
+	Tuse::Real,# 供热蒸汽温度
+	TCompressorIn::Real,# 中间级温度
+	dT_EvaporationStandard::Real,#全蒸温差
+	latentHeat::Real,# 汽化潜热
+	cp_cw::Real,# 循环水定压热容
+	cp_cs::Real,# 蒸汽定压热容 cp cycled steam
+	TcChangeToElec::Real,
+	TWaste::Real,# 废热回收蒸发器温度
+
+	# 高温蓄热参数
+	cpm_h::Real,# 高温蓄热热容
+
+	# 设备运行约束
+	TstorageTankMax::Real,# 蓄热罐的最高温度
+	PheatPumpMax::Real,# 热泵最大功率
+	PelecHeatMax::Real,# 电锅炉最大功率
+	# 求解参数
+	dT::Real = 0.1,# 状态参数高温蓄热温度离散步长
+	dt::Real = 1 / 6,# 时间步长
+)
+	heatLoad = heatConsumptionPowerFunction(0.0)
+	Tair = TairFunction(0.0)
+
+	TsList = TCompressorIn+dT_EvaporationStandard:dT:TstorageTankMax
+	tList = 0:dt:24
+	nT = length(TsList)# 温度步数	
+	nt = length(tList)# 时间步数
+	TsMatrix = zeros(Int,nt, nT)# 存储状态参数：高温蓄热温度
+	bestValueList = fill(99.0, nT)
+
 	# 已经生成了C, TsDecreaseIndexList, TsIncreaseIndexList
-	TsDecreaseIndex=maximum(TsDecreaseIndexList)
-	TsIncreaseIndex=maximum(TsIncreaseIndexList)
+
+
+	C, TsDecreaseIndexList, TsIncreaseIndexList = getStateTransitionCost(
+		PressedWaterDoubleStorageOneCompressor();
+		COPOverlap=COPOverlap,
+		COPWater=COPWater,
+		heatLoad=heatLoad,#热负荷
+		Tair=Tair,# 外部环境温度
+		# 总循环参数
+		Tuse=Tuse,# 供热蒸汽温度
+		dT_EvaporationStandard=dT_EvaporationStandard,#全蒸温差
+		latentHeat=latentHeat,# 汽化潜热
+		cp_cw=cp_cw,# 循环水定压热容
+		TcChangeToElec=TcChangeToElec,
+		TWaste=TWaste,# 废热回收蒸发器温度
+
+		# 高温蓄热参数
+		cpm_h=cpm_h,# 高温蓄热热容
+
+		# 设备运行约束
+		PheatPumpMax=PheatPumpMax,# 热泵最大功率
+		PelecHeatMax=PelecHeatMax,# 电锅炉最大功率
+		# 求解参数
+		TsList=collect(TsList),# 状态参数高温蓄热温度列表
+		dt=dt,# 时间步长
+	)
+	TsDecreaseIndex = maximum(TsDecreaseIndexList)
+	TsIncreaseIndex = maximum(TsIncreaseIndexList)
 	#最多降温TsDecreaseIndex,最多升温TsIncreaseIndex,所以从目标出发要多TsDecreaseIndex个，少TsIncreaseIndex个
 	# 先直接正向计算
 	# 正向计算步数
-	nForward = nt//2
-	
-	C, TsDecreaseIndexList, TsIncreaseIndexList
+	count=0
+	Threads.@threads for j=1:nT
+		# 生成状态记录矩阵
+		TsTransitionMatrix=zeros(nT,nt-1)
+		# 第一步
+		VForward = hourlyTariffFunction(0)*C[j,:]
+		TsTransitionMatrix[:,1].=j
+		for i in 2:nt-1
+			VForward,TsTransitionMatrix[:,i]=forwardSolve(
+				VForward,
+				C*hourlyTariffFunction(dt*(i-1)),
+				TsDecreaseIndex,
+				TsIncreaseIndex
+			)
+		end
+		# 状态回溯
+		valueMin=VForward[j] # 在第j个温度下的最优成本
+		TsIndexList=fill(j,nt)
+		for i in nt-1:-1:1
+			TsIndexList[i]=TsTransitionMatrix[TsIndexList[i+1],i]
+		end
+
+		# 写入bestValueList与TsMatrix
+		bestValueList[j] = valueMin
+		TsMatrix[:,j] .= TsIndexList
+		count+=1
+		if count%50==0
+			println("$count/$nT")
+		end
+	end
+
+	return bestValueList, TsMatrix
 end
 
 

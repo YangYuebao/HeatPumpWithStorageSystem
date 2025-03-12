@@ -1,6 +1,22 @@
 using Revise
 using HeatPumpWithStorageSystem
 
+begin
+	hourlyTariff = zeros(24)
+	hourlyTariff[1:7] .= 0.3340
+	hourlyTariff[8:11] .= 0.7393
+	hourlyTariff[12:14] .= 1.2360
+	hourlyTariff[15:18] .= 0.7393
+	hourlyTariff[19:23] .= 1.2360
+	hourlyTariff[24] = 0.3340
+	workingStartHour = 0                # 生产开始时间
+	workingHours = 24                   # 每日工作小时数
+	heatPumpServiceCoff=1.2
+	elecHeatServiceCoff=1.5
+	dT=0.1
+	dt=1/6
+end
+
 COPOverlap, COPWater,
 hourlyTariffFunction, heatConsumptionPowerFunction, TairFunction,
 Tuse, TCompressorIn,
@@ -21,14 +37,14 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	maxheatStorageInputHour = 4,        # 蓄热充满时长
 	dT_EvaporationStandard = 5.0,       # 全蒸温差
 	heatConsumptionPower = 1.0,         # 每小时用热功率kW
-	workingStartHour = 0,               # 生产开始时间
-	workingHours = 24,                  # 每日工作小时数
-	heatPumpServiceCoff = 1.2,          # 热泵功率服务系数
-	elecHeatServiceCoff = 1.5,    # 电锅炉服务系数
-	hourlyTariff = fill(0.7, 24),       # 电价向量
+	workingStartHour = workingStartHour,               # 生产开始时间
+	workingHours = workingHours,                  # 每日工作小时数
+	heatPumpServiceCoff = heatPumpServiceCoff,          # 热泵功率服务系数
+	elecHeatServiceCoff = elecHeatServiceCoff,    # 电锅炉服务系数
+	hourlyTariff = hourlyTariff,       # 电价向量
 )
 
-C, TsDecreaseIndexList, TsIncreaseIndexList=generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea();
+@time bestValueList, TsMatrix=generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea();
 	COPOverlap = COPOverlap,
 	COPWater = COPWater,
 	hourlyTariffFunction = hourlyTariffFunction,
@@ -47,16 +63,21 @@ C, TsDecreaseIndexList, TsIncreaseIndexList=generateAndSolve(PressedWaterDoubleS
 	PheatPumpMax = PheatPumpMax,
 	PelecHeatMax = PelecHeatMax,
 	# 求解参数
-	dT = 0.1,# 状态参数高温蓄热温度离散步长
-	dt = 1 / 6,# 时间步长
+	dT = dT,# 状态参数高温蓄热温度离散步长
+	dt = dt,# 时间步长
 )
 
-using Plots
-plot(TsDecreaseIndexList)
-plot(TsIncreaseIndexList)
+using Plots,DataFrames,CSV
 
-using DataFrames,CSV
-df = DataFrame(C,:auto)
-CSV.write("C.csv", df)
-plot(diag(C,10)[1:end-1])
+TsList = TCompressorIn+dT_EvaporationStandard:dT:TstorageTankMax
+tList=0:dt:24
 
+# 看看不同的初始温度下运行费用的变化
+plot(TsList,bestValueList)
+
+# 看看最优运行费用下蓄热温度的变化
+minCost,index=findmin(bestValueList)
+plot(tList,[TsList[i] for i in TsMatrix[:,index]])
+
+
+gridPrice=[hourlyTariffFunction(t) for t in tList]
