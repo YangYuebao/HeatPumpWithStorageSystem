@@ -314,7 +314,7 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	# 正向计算步数
 	nForward = nt//2
 	
-
+	C, TsDecreaseIndexList, TsIncreaseIndexList
 end
 
 
