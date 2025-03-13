@@ -207,29 +207,42 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 
 	#C[i,j]表示温度从TsList[i]到TsList[j]时的最低功率；在负载、环境不变的情况下，C[i,j]是不变的
 	C = fill(99.0, nT, nT)# 状态转移矩阵
+	P1Matrix = zeros(nT, nT)# 状态转移功率1参数
+	P2Matrix = zeros(nT, nT)# 状态转移功率2参数
+	P3Matrix = zeros(nT, nT)# 状态转移功率3参数
+	PeMatrix = zeros(nT, nT)# 状态转移功率电加热参数
 	TsDecreaseIndexList = zeros(Int, nT)# 记录温度下降最多偏移的index
 	TsIncreaseIndexList = zeros(Int, nT)# 记录温度上升最多偏移的index
 
 	# 只用热泵供热时的功率
 	P1Only = heatLoad / COP1# 只用热泵供热时的功率
+	for i=1:nT
+		P1Matrix[i,i]=P1Only
+	end
 
 	"""计算蓄热温度相对较低时的电度情况"""
 	function powerCalculate_lowTs(Tsaim, Tsstart, dt)
 		P3 = min(PheatPumpMax - P1Only, cpm_h / dt / COP1 * (Tsaim - Tsstart))
 		Pe = cpm_h / dt * (Tsaim - Tsstart) - P3 * COP1
 		flag = Pe <= PelecHeatMax
-		return (P1Only + P3 + Pe) * dt, flag
+		return (P1Only + P3 + Pe) * dt, flag , P1Only, P3, Pe
 	end
 
 	"""计算蓄热温度相对较高时的电度情况"""
 	function powerCalculate_highTs(Tsaim, Tsstart, dt)
 		COP3value = COP3(TWaste, (Tsaim + Tsstart) / 2 + dT_EvaporationStandard)
 		Ptotal = 999.0
+		P1res=0.0
+		P3res=0.0
+		Peres=0.0
 		flag = false
 		# 模式1：电热加热
 		Pe = cpm_h / dt * (Tsaim - Tsstart)
 		if Pe <= PelecHeatMax
 			flag = true
+			P1res=P1Only
+			P3res=0.0
+			Peres = Pe
 			Ptotal = P1Only + Pe
 		end
 
@@ -241,11 +254,14 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 		)
 		P1 = max(0, heatLoad / COP3value - cp_cw / latentHeat * (Tsaim - Tsstart) * P3)
 		Pe = cpm_h / dt * (Tsaim - Tsstart) - P3 * COP3value
-		if (Pe <= PelecHeatMax) && (Tsaim <= TcChangeToElec - dT_EvaporationStandard)
+		if (P1 + P3 + Pe<Ptotal)&&(Pe <= PelecHeatMax) && (Tsaim <= TcChangeToElec - dT_EvaporationStandard)
 			flag = true
-			Ptotal = min(Ptotal, P1 + P3 + Pe)
+			P1res=P1
+			P3res=P3
+			Peres = Pe
+			Ptotal = P1 + P3 + Pe
 		end
-		return Ptotal * dt, flag
+		return Ptotal * dt, flag,P1res,P3res,Peres
 	end
 
 	for i ∈ 1:nT
@@ -262,12 +278,14 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 		elecP = (TsNextMinGrid - TsNextMin) * cpm_h
 
 		index = i - TsDecreaseIndexList[i]
-		for j ∈ index:i
+		for j ∈ index:i-1
 			P2 = heatLoad / (COP2((TsList[i] + TsList[j]) / 2 - dT_EvaporationStandard, Tuse))
 			elecP = (TsList[j] - TsNextMin) * cpm_h
 			#补热的功率基本上超不了，因为这个工况下从蓄热取走的热量小于工厂的负载，而补热的功率大于等于工厂的负载
 			if elecP < PelecHeatMax * dt
 				C[i, j] = P2 * dt + elecP
+				P2Matrix[i, j] = P2
+				PeMatrix[i, j] = elecP/dt
 			end
 		end
 
@@ -280,24 +298,33 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 		flag = true
 		while flag && j < nT
 			if TsList[j] <= Tuse - dT_EvaporationStandard
-				C1, flag = powerCalculate_lowTs(TsList[j], TsList[i], dt)
+				C1, flag, P1,P3,Pe = powerCalculate_lowTs(TsList[j], TsList[i], dt)
 				if flag
 					C[i, j] = C1
+					P1Matrix[i,j]=P1
+					P3Matrix[i,j]=P3
+					PeMatrix[i,j]=Pe
 				end
 				#C[i, j] = flag ? C1 : 99
 			elseif TsList[i] < Tuse - dT_EvaporationStandard < TsList[j]
 				dt1 = (Tuse - dT_EvaporationStandard - TsList[i]) / (TsList[j] - TsList[i]) * dt
 				dt2 = dt - dt1
-				C1, flag1 = powerCalculate_lowTs(Tuse - dT_EvaporationStandard, TsList[i], dt1)
-				C2, flag2 = powerCalculate_highTs(TsList[j], Tuse - dT_EvaporationStandard, dt2)
+				C1, flag1, P11,P31,Pe1 = powerCalculate_lowTs(Tuse - dT_EvaporationStandard, TsList[i], dt1)
+				C2, flag2, P12,P32,Pe2 = powerCalculate_highTs(TsList[j], Tuse - dT_EvaporationStandard, dt2)
 				flag = flag1 && flag2
 				if flag
 					C[i, j] = C1 + C2
+					P1Matrix[i,j]=(P11*dt1+P12*dt2)/dt
+					P3Matrix[i,j]=(P31*dt1+P32*dt2)/dt
+					PeMatrix[i,j]=(Pe1*dt1+Pe2*dt2)/dt
 				end
 			elseif TsList[i] >= Tuse - dT_EvaporationStandard
-				C1, flag = powerCalculate_highTs(TsList[j], TsList[i], dt)
+				C1, flag, P1,P3,Pe = powerCalculate_highTs(TsList[j], TsList[i], dt)
 				if flag
 					C[i, j] = C1
+					P1Matrix[i,j]=P1
+					P3Matrix[i,j]=P3
+					PeMatrix[i,j]=Pe
 				end
 			end
 			j += 1
@@ -305,7 +332,7 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 		TsIncreaseIndexList[i] = flag ? j - 1 - i : j - 2 - i
 	end
 
-	return C, TsDecreaseIndexList, TsIncreaseIndexList
+	return C,P1Matrix,P2Matrix,P3Matrix,PeMatrix, TsDecreaseIndexList, TsIncreaseIndexList
 end
 
 """正向计算一个时间层上的动态规划"""
@@ -376,24 +403,26 @@ function dpSolve(
 			TsIncreaseIndex
 		)
 	end
-	
+		
 	valueMin=Inf # 在第j个温度下的最优成本
-	tempC=C*hourlyTariffFunction(dt*(nt-1))
+	tempC=C*hourlyTariffFunction(dt*(nt-2))
+	lastTsIndex=0
 	for i ∈ j-TsIncreaseIndex:j+TsDecreaseIndex
 		if i < 1 || i > nT
 			continue
 		end
 		if VForward[i] + tempC[i,j] < valueMin
 			valueMin = VForward[i] + tempC[i, j]
+			lastTsIndex = i
 		end
 	end
-	TsTransitionMatrix[:,nt-1]=1:nT
-	
+
 	# 状态回溯
 	#valueMin=VForward[j] # 在第j个温度下的最优成本
 	TsIndexList=Vector{Int}(undef,nt)
 	TsIndexList[nt]=j
-	for i in nt-1:-1:1
+	TsIndexList[nt-1]=lastTsIndex
+	for i in nt-2:-1:1
 		TsIndexList[i]=TsTransitionMatrix[TsIndexList[i+1],i]
 	end
 
@@ -442,7 +471,7 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	# 已经生成了C, TsDecreaseIndexList, TsIncreaseIndexList
 
 
-	C, TsDecreaseIndexList, TsIncreaseIndexList = getStateTransitionCost(
+	C,P1Matrix,P2Matrix,P3Matrix,PeMatrix, TsDecreaseIndexList, TsIncreaseIndexList = getStateTransitionCost(
 		PressedWaterDoubleStorageOneCompressor();
 		COPOverlap=COPOverlap,
 		COPWater=COPWater,
@@ -497,7 +526,13 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 
 	minCost,index=findmin(bestValueList)
 	minTsList=[TsList[i] for i in TsMatrix[:,index]]
-	return minCost,minTsList
+
+	P1List=[P1Matrix[TsMatrix[i,index],TsMatrix[i+1,index]] for i in 1:nt-1]
+	P2List=[P2Matrix[TsMatrix[i,index],TsMatrix[i+1,index]] for i in 1:nt-1]
+	P3List=[P3Matrix[TsMatrix[i,index],TsMatrix[i+1,index]] for i in 1:nt-1]
+	PeList=[PeMatrix[TsMatrix[i,index],TsMatrix[i+1,index]] for i in 1:nt-1]
+
+	return minCost,minTsList,P1List,P2List,P3List,PeList
 end
 
 function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost, ::ConstloadandArea,::GoldenRatioMethod;
@@ -528,7 +563,7 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	dT::Real = 0.1,# 状态参数高温蓄热温度离散步长
 	dt::Real = 1 / 6,# 时间步长
 )
-	heatLoad = heatConsumptionPowerFunction(0.0)
+heatLoad = heatConsumptionPowerFunction(0.0)
 	Tair = TairFunction(0.0)
 
 	TsList = TCompressorIn+dT_EvaporationStandard:dT:TstorageTankMax
@@ -541,7 +576,7 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	# 已经生成了C, TsDecreaseIndexList, TsIncreaseIndexList
 
 
-	C, TsDecreaseIndexList, TsIncreaseIndexList = getStateTransitionCost(
+	C,P1Matrix,P2Matrix,P3Matrix,PeMatrix, TsDecreaseIndexList, TsIncreaseIndexList = getStateTransitionCost(
 		PressedWaterDoubleStorageOneCompressor();
 		COPOverlap=COPOverlap,
 		COPWater=COPWater,
@@ -571,9 +606,13 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	# 先直接正向计算
 	# 正向计算步数
 	count=0
-	Threads.@threads for j=1:nT
-		# 生成状态记录矩阵
-		valueMin,TsIndexList=dpSolve(
+	# 初始化黄金分割法
+	phi=0.618
+	jList=[1,nT-round(Int,phi*(nT-1)),1+round(Int,phi*(nT-1)),nT]
+	valueList=zeros(4)
+	TsIndexListMatirx=zeros(Int,nt,4)
+	for (i,j) in enumerate(jList)
+		valueList[i],TsIndexListMatirx[:,i]=dpSolve(
 			nT,
 			nt,
 			C,
@@ -583,17 +622,59 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 			TsDecreaseIndex,# 温度下降最多偏移的index
 			TsIncreaseIndex# 温度上升最多偏移的index
 		)
-
-		# 写入bestValueList与TsMatrix
-		bestValueList[j] = valueMin
-		TsMatrix[:,j] .= TsIndexList
-		count+=1
-		if count%50==0
-			println("$count/$nT")
+	end
+	count=0
+	while (jList[4]-jList[1]>=4)&&count<100
+		if valueList[2]<valueList[3]	# 最值在j1到j3之间
+			jList[4]=jList[3]
+			valueList[4]=valueList[3]
+			TsIndexListMatirx[:,4]=TsIndexListMatirx[:,3]
+			jList[3]=jList[2]
+			valueList[3]=valueList[2]
+			TsIndexListMatirx[:,3]=TsIndexListMatirx[:,2]
+			jList[2]=min(max(floor(Int,jList[4]-phi*(jList[4]-jList[1])),jList[1]+1),jList[3]-1)
+			valueList[2],TsIndexListMatirx[:,2]=dpSolve(
+				nT,
+				nt,
+				C,
+				hourlyTariffFunction,
+				dt,
+				jList[2],
+				TsDecreaseIndex,# 温度下降最多偏移的index
+				TsIncreaseIndex# 温度上升最多偏移的index
+			)
+		elseif valueList[2]>=valueList[3]
+			jList[1]=jList[2]
+			valueList[1]=valueList[2]
+			TsIndexListMatirx[:,1]=TsIndexListMatirx[:,2]
+			jList[2]=jList[3]
+			valueList[2]=valueList[3]
+			TsIndexListMatirx[:,2]=TsIndexListMatirx[:,3]
+			jList[3]=max(min(ceil(Int,jList[1]+phi*(jList[4]-jList[1])),jList[4]-1),jList[2]+1)
+			valueList[3],TsIndexListMatirx[:,3]=dpSolve(
+				nT,
+				nt,
+				C,
+				hourlyTariffFunction,
+				dt,
+				jList[3],
+				TsDecreaseIndex,# 温度下降最多偏移的index
+				TsIncreaseIndex# 温度上升最多偏移的index
+			)
 		end
+		count+=1
+		println("$count/$nT","j1=$(jList[1]),j2=$(jList[2]),j3=$(jList[3]),j4=$(jList[4])")
 	end
 
-	return bestValueList, TsMatrix
+	minCost,index=findmin(valueList)
+	minTsList=TsIndexListMatirx[:,index]
+
+	P1List=[P1Matrix[minTsList[i],minTsList[i+1]] for i in 1:nt-1]
+	P2List=[P2Matrix[minTsList[i],minTsList[i+1]] for i in 1:nt-1]
+	P3List=[P3Matrix[minTsList[i],minTsList[i+1]] for i in 1:nt-1]
+	PeList=[PeMatrix[minTsList[i],minTsList[i+1]] for i in 1:nt-1]
+
+	return minCost,TsList[minTsList],P1List,P2List,P3List,PeList
 end
 
 
