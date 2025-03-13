@@ -14,7 +14,7 @@ begin
 	heatPumpServiceCoff=1.2
 	elecHeatServiceCoff=1.5
 	dT=0.1
-	dt=1/6
+	dt=3
 end
 
 COPOverlap, COPWater,
@@ -44,7 +44,7 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	hourlyTariff = hourlyTariff,       # 电价向量
 )
 
-@time bestValueList, TsMatrix=generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea();
+@time bestValueList, TsMatrix=generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(),ExhaustiveMethod();
 	COPOverlap = COPOverlap,
 	COPWater = COPWater,
 	hourlyTariffFunction = hourlyTariffFunction,
@@ -77,7 +77,7 @@ plot(TsList,bestValueList)
 
 # 看看最优运行费用下蓄热温度的变化
 minCost,index=findmin(bestValueList)
-plot(tList,[TsList[i] for i in TsMatrix[:,index]])
+plot(tList,TsMatrix)
 
 
 gridPrice=[hourlyTariffFunction(t) for t in tList]

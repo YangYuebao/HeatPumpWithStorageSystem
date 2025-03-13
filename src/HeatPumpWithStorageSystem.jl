@@ -61,4 +61,7 @@ export generateGridPriceFunction,generateLoadFunction,generateAreaTemperatureFun
 # 导出动态规划求解单压缩机系统的类型
 export NoSimplify,ConstloadandArea
 
+# 求解单压缩机系统的优化方法
+export ExhaustiveMethod,GoldenRatioMethod,MomentumMethod
+
 end # module HeatPumpWithStorageSystem

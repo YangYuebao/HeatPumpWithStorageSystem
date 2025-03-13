@@ -169,6 +169,12 @@ abstract type SimplifiedType end
 struct NoSimplify <: SimplifiedType end
 struct ConstloadandArea <: SimplifiedType end
 
+# 计算最优的0点温度时需要考虑优化方法
+abstract type  OptimizeMethod end
+struct ExhaustiveMethod <: OptimizeMethod end		# 穷举法（全面的）
+struct GoldenRatioMethod <: OptimizeMethod end	# 0.618法
+struct MomentumMethod <: OptimizeMethod end	# 动量法
+
 """计算状态转移成本矩阵"""
 function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 	COPOverlap::Function,
@@ -302,7 +308,7 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 	return C, TsDecreaseIndexList, TsIncreaseIndexList
 end
 
-"""正向计算一次动态规划"""
+"""正向计算一个时间层上的动态规划"""
 function forwardSolve(
 	valueList::Vector,	# 最优成本
 	costMatrix::Matrix, # 状态转移成本矩阵
@@ -326,9 +332,76 @@ function forwardSolve(
 	return valueListNext,lastTsIndex
 end
 
+"""反向计算一个时间层上的动态规划"""
+function backwardSolve(
+	valueList::Vector,	# 最优成本
+	costMatrix::Matrix, # 状态转移成本矩阵
+	TsDecreaseIndexList::Vector{Int},# 温度下降最多偏移的index
+	TsIncreaseIndexList::Vector{Int}	# 温度上升最多偏移的index
+)
+	nT=length(valueList)
+	valueListNext=fill(99.0, nT)
+	lastTsIndex=zeros(nT)
+	for j ∈ 1:nT
+		for i ∈ j-TsIncreaseIndexList[j]:j+TsDecreaseIndexList[j]
+			if valueList[i] + costMatrix[i, j] < valueListNext[j]
+				valueListNext[j] = valueList[i] + costMatrix[i, j]
+				lastTsIndex[j] = i
+			end
+		end
+	end
+	return valueListNext,lastTsIndex
+end
+
+"""用动态规划完整求解一个初始温度下的最优运行策略"""
+function dpSolve(
+	nT::Int,
+	nt::Int,
+	C::Matrix{Float64},
+	hourlyTariffFunction::Function,
+	dt::Real,
+	j::Int,
+	TsDecreaseIndex::Int,# 温度下降最多偏移的index
+	TsIncreaseIndex::Int	# 温度上升最多偏移的index
+)
+	TsTransitionMatrix=zeros(nT,nt-1)
+	# 第一步
+	VForward = hourlyTariffFunction(0)*C[j,:]
+	TsTransitionMatrix[:,1].=j
+	for i in 2:nt-2
+		VForward,TsTransitionMatrix[:,i]=forwardSolve(
+			VForward,
+			C*hourlyTariffFunction(dt*(i-1)),
+			TsDecreaseIndex,
+			TsIncreaseIndex
+		)
+	end
+	
+	valueMin=Inf # 在第j个温度下的最优成本
+	tempC=C*hourlyTariffFunction(dt*(nt-1))
+	for i ∈ j-TsIncreaseIndex:j+TsDecreaseIndex
+		if i < 1 || i > nT
+			continue
+		end
+		if VForward[i] + tempC[i,j] < valueMin
+			valueMin = VForward[i] + tempC[i, j]
+		end
+	end
+	TsTransitionMatrix[:,nt-1]=1:nT
+	
+	# 状态回溯
+	#valueMin=VForward[j] # 在第j个温度下的最优成本
+	TsIndexList=Vector{Int}(undef,nt)
+	TsIndexList[nt]=j
+	for i in nt-1:-1:1
+		TsIndexList[i]=TsTransitionMatrix[TsIndexList[i+1],i]
+	end
+
+	return valueMin,TsIndexList
+end
 
 """给定系统参数,求解系统成本,返回成本、热泵功率向量、蓄热量向量"""
-function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost, ::ConstloadandArea;
+function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost, ::ConstloadandArea,::ExhaustiveMethod;
 	COPOverlap::Function,
 	COPWater::Function,
 	hourlyTariffFunction::Function,   # 电价函数
@@ -401,24 +474,115 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	count=0
 	Threads.@threads for j=1:nT
 		# 生成状态记录矩阵
-		TsTransitionMatrix=zeros(nT,nt-1)
-		# 第一步
-		VForward = hourlyTariffFunction(0)*C[j,:]
-		TsTransitionMatrix[:,1].=j
-		for i in 2:nt-1
-			VForward,TsTransitionMatrix[:,i]=forwardSolve(
-				VForward,
-				C*hourlyTariffFunction(dt*(i-1)),
-				TsDecreaseIndex,
-				TsIncreaseIndex
-			)
+		valueMin,TsIndexList=dpSolve(
+			nT,
+			nt,
+			C,
+			hourlyTariffFunction,
+			dt,
+			j,
+			TsDecreaseIndex,# 温度下降最多偏移的index
+			TsIncreaseIndex# 温度上升最多偏移的index
+		)
+
+
+		# 写入bestValueList与TsMatrix
+		bestValueList[j] = valueMin
+		TsMatrix[:,j] .= TsIndexList
+		count+=1
+		if count%50==0
+			println("$count/$nT")
 		end
-		# 状态回溯
-		valueMin=VForward[j] # 在第j个温度下的最优成本
-		TsIndexList=fill(j,nt)
-		for i in nt-1:-1:1
-			TsIndexList[i]=TsTransitionMatrix[TsIndexList[i+1],i]
-		end
+	end
+
+	minCost,index=findmin(bestValueList)
+	minTsList=[TsList[i] for i in TsMatrix[:,index]]
+	return minCost,minTsList
+end
+
+function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost, ::ConstloadandArea,::GoldenRatioMethod;
+	COPOverlap::Function,
+	COPWater::Function,
+	hourlyTariffFunction::Function,   # 电价函数
+	heatConsumptionPowerFunction::Function,  # 用热负载函数
+	TairFunction::Function,# 环境温度函数
+
+	# 总循环参数
+	Tuse::Real,# 供热蒸汽温度
+	TCompressorIn::Real,# 中间级温度
+	dT_EvaporationStandard::Real,#全蒸温差
+	latentHeat::Real,# 汽化潜热
+	cp_cw::Real,# 循环水定压热容
+	cp_cs::Real,# 蒸汽定压热容 cp cycled steam
+	TcChangeToElec::Real,
+	TWaste::Real,# 废热回收蒸发器温度
+
+	# 高温蓄热参数
+	cpm_h::Real,# 高温蓄热热容
+
+	# 设备运行约束
+	TstorageTankMax::Real,# 蓄热罐的最高温度
+	PheatPumpMax::Real,# 热泵最大功率
+	PelecHeatMax::Real,# 电锅炉最大功率
+	# 求解参数
+	dT::Real = 0.1,# 状态参数高温蓄热温度离散步长
+	dt::Real = 1 / 6,# 时间步长
+)
+	heatLoad = heatConsumptionPowerFunction(0.0)
+	Tair = TairFunction(0.0)
+
+	TsList = TCompressorIn+dT_EvaporationStandard:dT:TstorageTankMax
+	tList = 0:dt:24
+	nT = length(TsList)# 温度步数	
+	nt = length(tList)# 时间步数
+	TsMatrix = zeros(Int,nt, nT)# 存储状态参数：高温蓄热温度
+	bestValueList = fill(99.0, nT)
+
+	# 已经生成了C, TsDecreaseIndexList, TsIncreaseIndexList
+
+
+	C, TsDecreaseIndexList, TsIncreaseIndexList = getStateTransitionCost(
+		PressedWaterDoubleStorageOneCompressor();
+		COPOverlap=COPOverlap,
+		COPWater=COPWater,
+		heatLoad=heatLoad,#热负荷
+		Tair=Tair,# 外部环境温度
+		# 总循环参数
+		Tuse=Tuse,# 供热蒸汽温度
+		dT_EvaporationStandard=dT_EvaporationStandard,#全蒸温差
+		latentHeat=latentHeat,# 汽化潜热
+		cp_cw=cp_cw,# 循环水定压热容
+		TcChangeToElec=TcChangeToElec,
+		TWaste=TWaste,# 废热回收蒸发器温度
+
+		# 高温蓄热参数
+		cpm_h=cpm_h,# 高温蓄热热容
+
+		# 设备运行约束
+		PheatPumpMax=PheatPumpMax,# 热泵最大功率
+		PelecHeatMax=PelecHeatMax,# 电锅炉最大功率
+		# 求解参数
+		TsList=collect(TsList),# 状态参数高温蓄热温度列表
+		dt=dt,# 时间步长
+	)
+	TsDecreaseIndex = maximum(TsDecreaseIndexList)
+	TsIncreaseIndex = maximum(TsIncreaseIndexList)
+	#最多降温TsDecreaseIndex,最多升温TsIncreaseIndex,所以从目标出发要多TsDecreaseIndex个，少TsIncreaseIndex个
+	# 先直接正向计算
+	# 正向计算步数
+	count=0
+	Threads.@threads for j=1:nT
+		# 生成状态记录矩阵
+		valueMin,TsIndexList=dpSolve(
+			nT,
+			nt,
+			C,
+			hourlyTariffFunction,
+			dt,
+			j,
+			TsDecreaseIndex,# 温度下降最多偏移的index
+			TsIncreaseIndex# 温度上升最多偏移的index
+		)
 
 		# 写入bestValueList与TsMatrix
 		bestValueList[j] = valueMin
