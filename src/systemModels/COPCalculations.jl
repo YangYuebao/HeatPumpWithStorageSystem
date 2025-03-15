@@ -268,9 +268,9 @@ struct OverlapRefrigerant
 	OverlapRefrigerant(refrigerantLow::Refrigerant,refrigerantHigh::Refrigerant,minTeHigh::Real,maxTcLow::Real,midTDifference::Real,step::Real)= maxTcLow-minTeHigh>midTDifference ? new(refrigerantLow,refrigerantHigh,minTeHigh,maxTcLow,midTDifference,step) : throw(error("蒸发器温度与冷凝温度差值必须大于复叠温差"))
 end
 
-R134a_Water=OverlapRefrigerant(refR134a,refWater,79.0,90.0,3.0,0.1)
-NH3_Water=OverlapRefrigerant(refNH3,refWater,95.0,118.0,3.0,0.1)
-R1233zdE_Water=OverlapRefrigerant(refR1233zdE,refWater,95.0,118.0,3.0,0.1)
+R134a_Water=OverlapRefrigerant(refR134a,refWater,79.0,90.0,5.0,0.1)
+NH3_Water=OverlapRefrigerant(refNH3,refWater,95.0,120.0,5.0,0.1)
+R1233zdE_Water=OverlapRefrigerant(refR1233zdE,refWater,95.0,120.0,5.0,0.1)
 
 
 function Base.getproperty(r::OverlapRefrigerant, s::Symbol)
@@ -291,6 +291,8 @@ function Base.getproperty(r::OverlapRefrigerant, s::Symbol)
 		return "OverlapMidT"*r.fileName
 	elseif s === :filePathMidT
 		return joinpath(pwd(),"refrigerantPropertys",r.fileNameMidT)
+	elseif s === :refrigerant
+		return r.refrigerantLow.refrigerant*"_"*r.refrigerantHigh.refrigerant
 	else
 		return getfield(r,s)
 	end
