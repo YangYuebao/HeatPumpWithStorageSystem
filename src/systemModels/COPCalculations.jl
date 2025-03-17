@@ -269,8 +269,8 @@ struct OverlapRefrigerant
 end
 
 R134a_Water=OverlapRefrigerant(refR134a,refWater,79.0,90.0,5.0,0.1)
-NH3_Water=OverlapRefrigerant(refNH3,refWater,95.0,120.0,5.0,0.1)
-R1233zdE_Water=OverlapRefrigerant(refR1233zdE,refWater,95.0,120.0,5.0,0.1)
+NH3_Water=OverlapRefrigerant(refNH3,refWater,95.0,125.0,5.0,0.1)
+R1233zdE_Water=OverlapRefrigerant(refR1233zdE,refWater,95.0,125.0,5.0,0.1)
 
 
 function Base.getproperty(r::OverlapRefrigerant, s::Symbol)

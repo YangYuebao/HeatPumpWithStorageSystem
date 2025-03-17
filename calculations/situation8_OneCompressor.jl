@@ -31,11 +31,12 @@ function main()
 	# 计算参数
 	dT = 0.1
 	dt = 0.5# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
+	K = 8
 
 	# 可调参数：循环工质、用热温度、蓄热容量、热泵服务系数、电锅炉服务系数、中间级温度、废热温度
 	overlapRefrigerantList = [NH3_Water, R1233zdE_Water]
-	heatStorageCapacityList = 0.0:8:16.0
-	TuseList = 120.0:40.0:180.0
+	heatStorageCapacityList = 1.0:1.0:8.0
+	TuseList = 130.0:10.0:180.0
 	totalCalculationTime=length(overlapRefrigerantList)*length(heatStorageCapacityList)*length(TuseList)
 
 	COPWater = getCOP(
@@ -87,7 +88,7 @@ function main()
 	for or in overlapRefrigerantList
 		filePathOr = joinpath(filePath0, or.refrigerant)
 		filePathEconomic = joinpath(filePathOr, "economic")
-		dfCost = DataFrame("蓄热容量" => heatStorageCapacityList)# 不同用热和蓄热的运行成本
+		dfCost = DataFrame("蓄热容量" => vcat(0.0,heatStorageCapacityList))# 不同用热和蓄热的运行成本
 
 		# 复叠循环COP
 		COPOverlap = getOverlapCOP_fixMidTemperature(
@@ -112,11 +113,28 @@ function main()
 		)
 
 		Threads.@threads for Tuse in TuseList
-			COPLow = COPLowFunction(TWaste, Tuse)
+			COPLow = COPLowFunction(TWaste, TCompressorIn+or.midTDifference)
 			filePathTuse = joinpath(filePathOr, "Tuse_" * string(Tuse))
 			dfEconomic = DataFrame([(col => Float64[]) for col in column_names_eco]...)# 经济性指标
 
-			Threads.@threads for heatStorageCapacity in heatStorageCapacityList
+			temp=COPWater(TCompressorIn,Tuse)
+			temp2=COPOverlap(TWaste,Tuse)
+			PLowMAX=heatConsumptionPower*(temp-1)/(COPLow+temp-1)/temp2
+			PHighMAX=heatConsumptionPower*(COPLow)/(COPLow+temp-1)/temp2
+			
+			temp = PLowMAX+PHighMAX
+			push!(dfEconomic,[
+				workingHours,
+				0.0,
+				0.0,
+				PLowMAX*temp2,
+				PHighMAX*temp2,
+				0.0,
+				temp*sum(hourlyTariff),
+				temp*24
+			])
+
+			for heatStorageCapacity in heatStorageCapacityList
 				dfOperation = DataFrame()# 运行参数
 				# 生成计算参数
 				hourlyTariffFunction, heatConsumptionPowerFunction, TairFunction,
@@ -164,11 +182,12 @@ function main()
 					# 求解参数
 					dT = dT,# 状态参数高温蓄热温度离散步长
 					dt = dt,# 时间步长
+					K=K,
 				)
 
 				storageTankMass = cpm_h / cp_cw * 3600#kg	蓄热水质量
 				storageTankVolume = storageTankMass / 900#m^3 蓄热罐体积
-				tList = collect((1:dt:24) .- dt)
+				tList = collect(0:dt:(24-dt).+0.5*dt)
 				nt = length(tList)
 
 				COPLowList = fill(1.0, nt)
@@ -182,16 +201,21 @@ function main()
 				for i ∈ 1:nt
 					if P2ListGo[i] > 0
 						COPOverlaplist[i] = COPWater((minTsListGo[i+1]+minTsListGo[i+1])/2 - dT_EvaporationStandard, Tuse)
-					elseif PeListGo[i] > 0
+					elseif P3ListGo[i] > 0
 						COPOverlaplist[i] = COPOverlap(TWaste, max((minTsListGo[i+1]+minTsListGo[i+1])/2 + dT_EvaporationStandard, Tuse))
 					end
 				end
+
 				COPWaterList = fill(COPOverlap(TWaste, Tuse), nt)
 				for i ∈ 1:nt
 					if P2ListGo[i] > 0
 						COPWaterList[i] = COPWater(P2ListGo[i] - dT_EvaporationStandard, Tuse)
+					elseif P1ListGo[i] > 0 && P3ListGo[i] == 0
+						COPWaterList[i] = COPWater(TCompressorIn, Tuse)
+					elseif P1ListGo[i] > 0 && P3ListGo[i] > 0
+						COPWaterList[i] = COPWater(TCompressorIn, max((minTsListGo[i+1]+minTsListGo[i+1])/2 + dT_EvaporationStandard, Tuse))
 					else
-						COPWaterList[i] = COPOverlaplist[i] * (COPLowList[i] - 1) / (COPLowList[i] - COPOverlaplist[i])
+						COPWaterList[i] = 1.0
 					end
 				end
 				#println(length(P1ListGo)," ",length(COPWaterList)," ",nt)
@@ -219,14 +243,21 @@ function main()
 				dfOperation[!, :低温热泵功率] = PLowList
 				dfOperation[!, :水蒸气压缩机功率] = PHighList
 
+				PLowMAX=maximum(PLowList)
+				PHighMAX=maximum(PHighList)
+				temp = PLowMAX+PHighMAX
+				if temp <1
+					PLowMAX /= temp
+					PHighMAX /= temp
+				end
 				#[:工作时长, :蓄热时长, :承压水体积, :低温热泵总功率, :高温热泵总功率, :电加热功率, :每天运行费用, :总电度]
 				push!(dfEconomic, [
-					24.0,
+					workingHours,
 					heatStorageCapacity,
 					storageTankVolume,
-					maximum(PLowList),
-					maximum(PHighList),
-					maximum(PeListGo),
+					PLowMAX,
+					PHighMAX,
+					PelecHeatMax,
 					minCostGo,
 					sum(PLowList + PHighList + PeListGo) * dt,
 				])
@@ -234,14 +265,17 @@ function main()
 				count+=1
 				println(count,"/",totalCalculationTime," ","Tuse=",Tuse,", heatStorageCapacity=",heatStorageCapacity)
 			end
-
+			
 			sort!(dfEconomic, "蓄热时长")
 			CSV.write(joinpath(filePathEconomic, "经济环境指标" * string(Tuse) * "℃.csv"), round.(dfEconomic,digits=5))
+
 			dfCost[!, string(Tuse)*"℃"] = dfEconomic[:, "每天运行费用"]
 		end
 		select!(dfCost, column_names_temperature)
 		CSV.write(joinpath(filePathOr, "summary.csv"), round.(dfCost,digits=5))
 	end
 end
-
+#2小时20分钟
+# 2025年3月17日3时开始计算
+@info "开始计算"
 @time main()
