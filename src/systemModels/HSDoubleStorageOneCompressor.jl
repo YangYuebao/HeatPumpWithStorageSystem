@@ -208,6 +208,7 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 
 	"""计算蓄热温度相对较高时的电度情况"""
 	function powerCalculate_highTs(Tsaim, Tsstart, dt)
+		#COP3value = COP3(TWaste, (min(Tsaim,TcChangeToElec - dT_EvaporationStandard) + Tsstart) / 2 + dT_EvaporationStandard)
 		COP3value = COP3(TWaste, (Tsaim + Tsstart) / 2 + dT_EvaporationStandard)
 		Ptotal = 999.0
 		P1res = 0.0
@@ -256,7 +257,26 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 		TsNextMinGrid = TsList[ibias]
 		elecP = (TsNextMinGrid - TsNextMin) * cpm_h
 
+		# 如果温度在一个时间层内会跌到低于最低温度，那么将这个时间层分为两段，前段用蓄热，后段用热泵直供
 		index = i - TsDecreaseIndexList[i]
+		if index == 1
+			j=1
+			P21 = heatLoad / (COP2((TsList[i] + TsList[j]) / 2 - dT_EvaporationStandard, Tuse))
+			elecP1 = (TsList[j] - TsNextMin) * cpm_h
+			#补热的功率基本上超不了，因为这个工况下从蓄热取走的热量小于工厂的负载，而补热的功率大于等于工厂的负载
+
+			P22 = cpm_h*(TsList[i] - TsList[j])/(COP2((TsList[i] + TsList[j]) / 2 - dT_EvaporationStandard, Tuse)-1)
+			P12 = (heatLoad-P22-cpm_h*(TsList[i] - TsList[j]))/COP1
+			if P21+elecP1 < P22+P12
+				C[i, j] = P21 * dt + elecP1
+				P2Matrix[i, j] = P21
+				PeMatrix[i, j] = elecP1 / dt
+			else
+				C[i, j] = (P22+P12)*dt
+				P2Matrix[i, j] = P22
+				P1Matrix[i, j] = P12
+			end
+		end
 		#=
 		# 纯蓄热供热的工况下不考虑电加热的能量守恒会导致严重的计算错误,但在时间步长减小时由于温度降低幅度减小，又要依附到网格上，导致电加热的补齐效应一直开启。
 		P2 = heatLoad / (COP2((TsList[i] + TsList[index]) / 2 - dT_EvaporationStandard, Tuse))
@@ -264,7 +284,7 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 		P2Matrix[i, index] = P2
 		=#
 
-		for j ∈ index:i-1
+		for j ∈ index+1:i-1
 			P2 = heatLoad / (COP2((TsList[i] + TsList[j]) / 2 - dT_EvaporationStandard, Tuse))
 			elecP = (TsList[j] - TsNextMin) * cpm_h
 			#补热的功率基本上超不了，因为这个工况下从蓄热取走的热量小于工厂的负载，而补热的功率大于等于工厂的负载

@@ -1,4 +1,5 @@
 using Revise
+using Pkg
 using HeatPumpWithStorageSystem
 using DataFrames, CSV
 
@@ -21,7 +22,7 @@ function main()
 	eta_s = 0.7# 绝热效率
 	workingStartHour = 0                # 生产开始时间
 	workingHours = 24                   # 每日工作小时数
-	TWaste = 55.0                     # 废热源温度
+	TWaste = 30.0                     # 废热源温度
 	Tair = 25.0                        # 外部环境温度
 	TCompressorIn = 115.0
 	maxTcHigh = 180.0
@@ -30,13 +31,14 @@ function main()
 
 	# 计算参数
 	dT = 0.1
-	dt = 0.5# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
-	K = 8
+	dt = 1# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
+	K = 2
+	#lambdaPe=0.01
 
 	# 可调参数：循环工质、用热温度、蓄热容量、热泵服务系数、电锅炉服务系数、中间级温度、废热温度
 	overlapRefrigerantList = [NH3_Water, R1233zdE_Water]
-	heatStorageCapacityList = 1.0:1.0:8.0
-	TuseList = 130.0:10.0:180.0
+	heatStorageCapacityList = 1.0:1.0:10.0
+	TuseList = 120.0:20.0:180.0
 	totalCalculationTime=length(overlapRefrigerantList)*length(heatStorageCapacityList)*length(TuseList)
 
 	COPWater = getCOP(
@@ -183,6 +185,7 @@ function main()
 					dT = dT,# 状态参数高温蓄热温度离散步长
 					dt = dt,# 时间步长
 					K=K,
+					#lambdaPe=lambdaPe,
 				)
 
 				storageTankMass = cpm_h / cp_cw * 3600#kg	蓄热水质量

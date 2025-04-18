@@ -83,7 +83,7 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	hourlyTariff = hourlyTariff,       # 电价向量
 )
 
-#=
+
 @time bestValueList,TsMatrix,minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest = HeatPumpWithStorageSystem.testSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), ExhaustiveMethod();
 	COPOverlap = COPOverlap,
 	COPWater = COPWater,
@@ -108,8 +108,9 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	K=K
 )
 
-=#
+
 # 2025年3月17日07:14:52
+#=
 @time minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest = generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), GoldenRatioMethod();
 	COPOverlap = COPOverlap,
 	COPWater = COPWater,
@@ -133,6 +134,7 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	dt = dt,# 时间步长
 	K=K
 )
+=#
 #= K=2 dt=1.0
 170 3.0 6.68601222715751
 170 3.75 6.341932166742927
@@ -147,6 +149,8 @@ tList = 0:dt:(24-dt)
 # 看看最优运行费用下蓄热温度的变化
 plt = plot(tList .+ 0.5, [P1ListTest P2ListTest P3ListTest PeListTest], label = ["P1" "P2" "P3" "Pe"])
 plot!(plt, tList, minTsListTest[1:end-1] / 220, label = "Ts")
+
+plot(bestValueList[1:1000])
 
 #=
 dt	K	Tuse	Storage		Cost		Ts0
