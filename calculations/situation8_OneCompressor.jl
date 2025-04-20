@@ -32,13 +32,13 @@ function main()
 	# 计算参数
 	dT = 0.1
 	dt = 1# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
-	K = 2
+	K = 1
 	#lambdaPe=0.01
 
 	# 可调参数：循环工质、用热温度、蓄热容量、热泵服务系数、电锅炉服务系数、中间级温度、废热温度
 	overlapRefrigerantList = [NH3_Water, R1233zdE_Water]
 	heatStorageCapacityList = 1.0:1.0:10.0
-	TuseList = 120.0:20.0:180.0
+	TuseList = 120.0:10.0:180.0
 	totalCalculationTime=length(overlapRefrigerantList)*length(heatStorageCapacityList)*length(TuseList)
 
 	COPWater = getCOP(
@@ -282,3 +282,8 @@ end
 # 2025年3月17日3时开始计算
 @info "开始计算"
 @time main()
+#=
+实现变环境变需求
+实现平滑功率
+
+=#

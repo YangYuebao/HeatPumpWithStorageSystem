@@ -144,7 +144,7 @@ function generateSystemCoff(::PressedWaterDoubleStorageOneCompressor;
 end
 
 abstract type SimplifiedType end
-struct NoSimplify <: SimplifiedType end
+struct VaryLoad <: SimplifiedType end
 struct ConstloadandArea <: SimplifiedType end
 
 # 计算最优的0点温度时需要考虑优化方法
@@ -208,37 +208,63 @@ function getStateTransitionCost(::PressedWaterDoubleStorageOneCompressor;
 
 	"""计算蓄热温度相对较高时的电度情况"""
 	function powerCalculate_highTs(Tsaim, Tsstart, dt)
-		#COP3value = COP3(TWaste, (min(Tsaim,TcChangeToElec - dT_EvaporationStandard) + Tsstart) / 2 + dT_EvaporationStandard)
 		COP3value = COP3(TWaste, (Tsaim + Tsstart) / 2 + dT_EvaporationStandard)
+
+		function mode1(dt1)# 模式1：电热加热
+			Pe = cpm_h / dt1 * (Tsaim - Tsstart)
+			if Pe <= PelecHeatMax
+				return true, P1Only, 0.0, Pe
+			else
+				return false, 9999.0, 9999.0, 9999.0
+			end
+			
+		end
+
+		function mode2(Tsaim2, Tsstart2, dt2)
+			P3 = min(
+				PheatPumpMax,
+				(PheatPumpMax - heatLoad / COP3value) / (1 - cp_cw / latentHeat * (Tsaim2 - Tsstart2)),
+				cpm_h / dt2 / COP3value * (Tsaim2 - Tsstart2),
+			)
+			P1 = max(0, heatLoad / COP3value - cp_cw / latentHeat * (Tsaim2 - Tsstart2) * P3)
+			Pe = cpm_h / dt2 * (Tsaim2 - Tsstart2) - P3 * COP3value
+			if Pe <= PelecHeatMax
+				return true, P1, P3, Pe
+			else
+				return false, 9999.0, 9999.0, 9999.0
+			end
+		end
+		#COP3value = COP3(TWaste, (min(Tsaim,TcChangeToElec - dT_EvaporationStandard) + Tsstart) / 2 + dT_EvaporationStandard)
+		
 		Ptotal = 999.0
 		P1res = 0.0
 		P3res = 0.0
 		Peres = 0.0
 		flag = false
 		# 模式1：电热加热
-		Pe = cpm_h / dt * (Tsaim - Tsstart)
-		if Pe <= PelecHeatMax
-			flag = true
-			P1res = P1Only
-			P3res = 0.0
-			Peres = Pe
-			Ptotal = P1Only + Pe
-		end
+		flag, P1res, P3res, Peres= mode1(dt)
+		Ptotal=P1res+P3res+Peres
 
-		# 模式2：热泵加电热
-		P3 = min(
-			PheatPumpMax,
-			(PheatPumpMax - heatLoad / COP3value) / (1 - cp_cw / latentHeat * (Tsaim - Tsstart)),
-			cpm_h / dt / COP3value * (Tsaim - Tsstart),
-		)
-		P1 = max(0, heatLoad / COP3value - cp_cw / latentHeat * (Tsaim - Tsstart) * P3)
-		Pe = cpm_h / dt * (Tsaim - Tsstart) - P3 * COP3value
-		if (P1 + P3 + Pe < Ptotal) && (Pe <= PelecHeatMax) && (Tsaim <= TcChangeToElec - dT_EvaporationStandard)
-			flag = true
-			P1res = P1
-			P3res = P3
-			Peres = Pe
-			Ptotal = P1 + P3 + Pe
+		# 模式2：热泵加电热,又分两种模式：末态温度不大于电加热温度界限与末态温度大于电加热温度界线
+		if (Tsaim <= TcChangeToElec - dT_EvaporationStandard)	# 该时间层的末态温度大于电加热温度界限
+			flag_2, P1_2, P3_2, Pe_2= mode2(Tsaim,Tsstart,dt)
+			Ptotal_2=P1_2+P3_2+Pe_2
+		else
+			tmid=dt*(TcChangeToElec - dT_EvaporationStandard-Tsstart)/(Tsaim - Tsstart)
+			flag_21, P1_21, P3_21, Pe_21= mode2(TcChangeToElec - dT_EvaporationStandard,Tsstart,tmid)
+			flag_22, P1_22, P3_22, Pe_22= mode2(Tsaim,TcChangeToElec - dT_EvaporationStandard,dt-tmid)
+			flag_2=flag_21 && flag_22
+			P1_2=P1_21+P1_22
+			P3_2=P3_21+P3_22
+			Pe_2=Pe_21+Pe_22
+			Ptotal_2=P1_2+P3_2+Pe_2
+		end
+		if (Ptotal_2 < Ptotal)
+			flag = flag || flag_2
+			P1res = P1_2
+			P3res = P3_2
+			Peres = Pe_2
+			Ptotal = Ptotal_2
 		end
 		return Ptotal * dt, flag, P1res, P3res, Peres
 	end
@@ -684,7 +710,7 @@ function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCo
 	return minCost, TsList[minTsList], P1List, P2List, P3List, PeList
 end
 
-function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost, ::NoSimplify, ::GoldenRatioMethod;
+function generateAndSolve(::PressedWaterDoubleStorageOneCompressor, ::MinimizeCost, ::VaryLoad, ::GoldenRatioMethod;
 	COPOverlap::Function,
 	COPWater::Function,
 	hourlyTariffFunction::Function,   # 电价函数
