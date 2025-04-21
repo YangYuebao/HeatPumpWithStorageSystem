@@ -1,3 +1,4 @@
+using Pkg
 using Revise
 using HeatPumpWithStorageSystem
 
@@ -27,9 +28,9 @@ begin
 	dT_EvaporationStandard = 5.0
 	heatConsumptionPower = 1.0
 	# 计算参数
-	dT = 0.1
+	dT = 0.01
 	dt = 1.0# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
-	K=2
+	K=1
 
 	COPWater = getCOP(
 		TCompressorIn,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
@@ -83,7 +84,7 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	hourlyTariff = hourlyTariff,       # 电价向量
 )
 
-
+#=
 @time bestValueList,TsMatrix,minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest = HeatPumpWithStorageSystem.testSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), ExhaustiveMethod();
 	COPOverlap = COPOverlap,
 	COPWater = COPWater,
@@ -107,10 +108,10 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	dt = dt,# 时间步长
 	K=K
 )
-
+=#
 
 # 2025年3月17日07:14:52
-#=
+
 @time minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest = generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), GoldenRatioMethod();
 	COPOverlap = COPOverlap,
 	COPWater = COPWater,
@@ -134,7 +135,7 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 	dt = dt,# 时间步长
 	K=K
 )
-=#
+
 #= K=2 dt=1.0
 170 3.0 6.68601222715751
 170 3.75 6.341932166742927
