@@ -15,7 +15,7 @@ struct PressedWaterHighStorage <: EnergySystem end# 热泵+蓄热系统
 """承压水蓄热，中高温双蓄热"""
 struct PressedWaterDoubleStorage <: EnergySystem end# 双蓄热系统
 struct PressedWaterDoubleStorageSimplified <: EnergySystem end# 双蓄热系统，简化了管路
-struct PressedWaterDoubleStorageOneCompressor <: EnergySystem end# 蓄热系统，只有一个压缩机
+struct PressedWaterOneStorageOneCompressor <: EnergySystem end# 蓄热系统，只有一个压缩机
 
 export HeatPumpStoragePhaseChange,
 	PressedWaterHighStorage,
@@ -37,7 +37,10 @@ end
 =#
 dirname = joinpath(pwd(), "src", "systemModels")
 for file in readdir(dirname)
-	include(joinpath(dirname, file))
+	srcpath = joinpath(dirname, file)
+	if isfile(srcpath)
+		include(srcpath)
+	end
 end
 
 export Refrigerant,OverlapRefrigerant
