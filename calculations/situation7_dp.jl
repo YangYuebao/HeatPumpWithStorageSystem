@@ -2,6 +2,7 @@ using Pkg
 using Revise
 using HeatPumpWithStorageSystem
 
+
 begin
 	hourlyTariff = zeros(24)
 	hourlyTariff[1:7] .= 0.3340
@@ -12,7 +13,7 @@ begin
 	hourlyTariff[24] = 0.3340
 
 	or = NH3_Water
-	heatStorageCapacity = 3.0
+	heatStorageCapacity = 10.0
 	Tuse = 180.0
 
 	# 系数
@@ -21,7 +22,7 @@ begin
 	eta_s = 0.7# 绝热效率
 	workingStartHour = 0                # 生产开始时间
 	workingHours = 24                   # 每日工作小时数
-	TWaste = 55.0                     # 废热源温度
+	TWaste = 30.0                     # 废热源温度
 	Tair = 25.0                        # 外部环境温度
 	TCompressorIn = 115.0
 	maxTcHigh = 180.0
@@ -29,8 +30,9 @@ begin
 	heatConsumptionPower = 1.0
 	# 计算参数
 	dT = 0.1
-	dt = 1.0# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
-	K=1
+	temp=4
+	dt = 1/temp# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
+	K=2*temp
 
 	COPWater = getCOP(
 		TCompressorIn,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
@@ -49,7 +51,9 @@ begin
 		maxCOP = maxCOP,# 最大COP
 		eta_s = eta_s,# 绝热效率
 		dT = dT,# 插值步长
-	)	
+	)
+	#COP2_design=COPOverlap(TWaste, Tuse)
+	COP2_design=1.0
 end
 
 #=
@@ -66,8 +70,9 @@ dT_EvaporationStandard,
 latentHeat, cp_cw, cp_cs,
 TcChangeToElec, TWaste,
 cpm_h,
-TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDoubleStorageOneCompressor();
+TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterOneStorageOneCompressor();
 	overlapRefrigerant = or,    # 复叠工质
+	COP2_design=COP2_design,
 	maxTcHigh = maxTcHigh,                  # 高温热泵冷凝器温度上限
 	TCompressorIn = TCompressorIn,              # 中间温度
 	TWaste = TWaste,                      # 废热源温度
@@ -112,7 +117,7 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDou
 
 # 2025年3月17日07:14:52
 
-@time minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest = generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), GoldenRatioMethod();
+@time minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), GoldenRatioMethod();
 	COPOverlap = COPOverlap,
 	COPWater = COPWater,
 	hourlyTariffFunction = hourlyTariffFunction,

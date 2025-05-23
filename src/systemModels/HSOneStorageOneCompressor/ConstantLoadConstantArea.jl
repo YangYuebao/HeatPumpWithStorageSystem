@@ -40,6 +40,10 @@ function getStateTransitionCost(::PressedWaterOneStorageOneCompressor,::Constloa
 
 	# 只用热泵供热时的功率
 	P1Only = heatLoad / COP1# 只用热泵供热时的功率
+	if P1Only < 0.0
+		@warn "热泵最大功率小于0.0,已自动设置为0.0"
+		P1Only = 0.0
+	end
 	for i ∈ 1:nT
 		P1Matrix[i, i] = P1Only
 	end
@@ -95,7 +99,7 @@ function getStateTransitionCost(::PressedWaterOneStorageOneCompressor,::Constloa
 		if (Tsaim <= TcChangeToElec - dT_EvaporationStandard)	# 该时间层的末态温度大于电加热温度界限
 			flag_2, P1_2, P3_2, Pe_2= mode2(Tsaim,Tsstart,dt)
 			Ptotal_2=P1_2+P3_2+Pe_2
-		else
+		elseif (Tsaim > TcChangeToElec - dT_EvaporationStandard>Tsstart)
 			tmid=dt*(TcChangeToElec - dT_EvaporationStandard-Tsstart)/(Tsaim - Tsstart)
 			flag_21, P1_21, P3_21, Pe_21= mode2(TcChangeToElec - dT_EvaporationStandard,Tsstart,tmid)
 			flag_22, P1_22, P3_22, Pe_22= mode2(Tsaim,TcChangeToElec - dT_EvaporationStandard,dt-tmid)
@@ -104,6 +108,12 @@ function getStateTransitionCost(::PressedWaterOneStorageOneCompressor,::Constloa
 			P3_2=P3_21*tmid/dt+P3_22*(dt-tmid)/dt
 			Pe_2=Pe_21*tmid/dt+Pe_22*(dt-tmid)/dt
 			Ptotal_2=P1_2+P3_2+Pe_2
+		else
+			Ptotal_2=9999.0
+			flag_2=false
+			P1_2=9999.0
+			P3_2=9999.0
+			Pe_2=9999.0
 		end
 		if (Ptotal_2 < Ptotal)
 			flag = flag || flag_2
@@ -228,27 +238,6 @@ function forwardSolve(
 			if i < 1 || i > nT
 				continue
 			end
-			if valueList[i] + costMatrix[i, j] < valueListNext[j]
-				valueListNext[j] = valueList[i] + costMatrix[i, j]
-				lastTsIndex[j] = i
-			end
-		end
-	end
-	return valueListNext, lastTsIndex
-end
-
-"""反向计算一个时间层上的动态规划"""
-function backwardSolve(
-	valueList::Vector,# 最优成本
-	costMatrix::Matrix, # 状态转移成本矩阵
-	TsDecreaseIndexList::Vector{Int},# 温度下降最多偏移的index
-	TsIncreaseIndexList::Vector{Int},# 温度上升最多偏移的index
-)
-	nT = length(valueList)
-	valueListNext = fill(99.0, nT)
-	lastTsIndex = zeros(nT)
-	for j ∈ 1:nT
-		for i ∈ j-TsIncreaseIndexList[j]:j+TsDecreaseIndexList[j]
 			if valueList[i] + costMatrix[i, j] < valueListNext[j]
 				valueListNext[j] = valueList[i] + costMatrix[i, j]
 				lastTsIndex[j] = i

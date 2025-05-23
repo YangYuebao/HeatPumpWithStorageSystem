@@ -21,7 +21,8 @@ export HeatPumpStoragePhaseChange,
 	PressedWaterHighStorage,
 	PressedWaterDoubleStorage,
 	PressedWaterDoubleStorageSimplified,
-	PressedWaterDoubleStorageOneCompressor
+	PressedWaterDoubleStorageOneCompressor,
+	PressedWaterOneStorageOneCompressor
 
 abstract type SystemObjectiveType end
 struct MinimizeCost <: SystemObjectiveType end# 最小化成本
