@@ -37,8 +37,11 @@ function main()
 
 	# 可调参数：循环工质、用热温度、蓄热容量、热泵服务系数、电锅炉服务系数、中间级温度、废热温度
 	overlapRefrigerantList = [NH3_Water, R1233zdE_Water]
-	heatStorageCapacityList = 1.0:1.0:10.0
-	TuseList = 120.0:10.0:180.0
+	
+	# 热容的计算列表
+	heatStorageCapacityList = 1.0:3.0:10.0
+	# 用热温度的计算列表
+	TuseList = 120.0:30.0:180.0
 	totalCalculationTime=length(overlapRefrigerantList)*length(heatStorageCapacityList)*length(TuseList)
 
 	COPWater = getCOP(
@@ -114,7 +117,8 @@ function main()
 			dT,# 插值步长
 		)
 
-		Threads.@threads for Tuse in TuseList
+		#Threads.@threads 
+		for Tuse in TuseList
 			COPLow = COPLowFunction(TWaste, TCompressorIn+or.midTDifference)
 			filePathTuse = joinpath(filePathOr, "Tuse_" * string(Tuse))
 			dfEconomic = DataFrame([(col => Float64[]) for col in column_names_eco]...)# 经济性指标
@@ -145,25 +149,25 @@ function main()
 				latentHeat, cp_cw, cp_cs,
 				TcChangeToElec, TWaste,
 				cpm_h,
-				TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(PressedWaterDoubleStorageOneCompressor();
+				TstorageTankMax, PheatPumpMax, PelecHeatMax,	PWaterCompressorMax = generateSystemCoff(PressedWaterOneStorageOneCompressor();
 					overlapRefrigerant = or,    # 复叠工质
 					maxTcHigh = maxTcHigh,                  # 高温热泵冷凝器温度上限
 					TCompressorIn = TCompressorIn,              # 中间温度
 					TWaste = TWaste,                      # 废热源温度
-					Tair = Tair,                        # 外部环境温度
+					Tair = fill(Tair,25),                        # 外部环境温度
 					Tuse = Tuse,                       # 工厂使用温度
 					heatStorageCapacity = heatStorageCapacity,  # 蓄热量kWh(承压水蓄热)
 					TstorageTankMax = 220.0,            # 蓄热罐的最高温度
 					maxheatStorageInputHour = 4,        # 蓄热充满时长
 					dT_EvaporationStandard = dT_EvaporationStandard,       # 全蒸温差
-					heatConsumptionPower = heatConsumptionPower,         # 每小时用热功率kW
+					heatConsumptionPower = fill(heatConsumptionPower,25),         # 每小时用热功率kW
 					workingStartHour = workingStartHour,# 生产开始时间
 					workingHours = workingHours,                  # 每日工作小时数
 					heatPumpServiceCoff = heatPumpServiceCoff,    # 热泵功率服务系数
 					hourlyTariff = hourlyTariff,       # 电价向量
 				)
 
-				minCostGo, minTsListGo, P1ListGo, P2ListGo, P3ListGo, PeListGo = generateAndSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), GoldenRatioMethod();
+				minCostGo, minTsListGo, P1ListGo, P2ListGo, P3ListGo, PeListGo = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), GoldenRatioMethod();
 					COPOverlap = COPOverlap,
 					COPWater = COPWater,
 					hourlyTariffFunction = hourlyTariffFunction,

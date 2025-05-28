@@ -35,8 +35,9 @@ function functionInterpolationGenerator(list::Vector, duration::Real, ::LinearGe
 	n = length(list)
 	if n == 1
 		list = [list[1], list[1]]
+		n=2
 	end
-	n = 2
+	#n = 2
 	tList = collect(range(0, stop = duration, length = n))
 	sitpCOP = linear_interpolation(tList, list)
 	function f(x::Real)
@@ -81,16 +82,17 @@ end
 function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 	overlapRefrigerant::OverlapRefrigerant = NH3_Water,# 复叠工质
 	COP2_design::Real = 2.1301295025490354,
+	COPWater_design::Real = 3.0,
 	maxTcHigh::Real = 180.0,  # 高温热泵冷凝器温度上限
 	TCompressorIn::Real = 115.0,# 中间温度
 	TWaste::Real = 60.0,                  # 废热源温度
-	Tair::Real = 25.0,          # 外部环境温度
+	Tair::Vector = fill(25.0,24),          # 外部环境温度
 	Tuse::Real = 120.0,                     # 工厂使用温度
 	heatStorageCapacity::Real = 6.0,        # 蓄热量kWh(承压水蓄热)
 	TstorageTankMax::Real = 220.0,          # 蓄热罐的最高温度
 	maxheatStorageInputHour::Real = 4,      # 蓄热充满时长
 	dT_EvaporationStandard::Real = 5.0,# 全蒸温差
-	heatConsumptionPower::Real = 1.0,       # 每小时用热功率kW
+	heatConsumptionPower::Vector = fill(1.0,24),       # 每小时用热功率kW
 	workingStartHour::Int = 8,              # 生产开始时间
 	workingHours::Int = 16,                 # 每日工作小时数
 	heatPumpServiceCoff::Real = 1.2,        # 热泵功率服务系数
@@ -109,14 +111,16 @@ function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 	end
 
 	# 计算热泵基础功率和实际配置功率
-	P1base = heatConsumptionPower / COP2_design
+	maxheatPower=maximum(heatConsumptionPower)
+	P1base =  maxheatPower / COP2_design
 	PheatPumpMax = P1base * heatPumpServiceCoff
-	PelecHeatMax = heatConsumptionPower * heatStorageCapacity / maxheatStorageInputHour
+	PelecHeatMax = maxheatPower * heatStorageCapacity / maxheatStorageInputHour
+	PWaterCompressorMax = maxheatPower/COPWater_design
 
 	# 生成需求与环境函数
 	hourlyTariffFunction = generateGridPriceFunction(hourlyTariff, 24)
-	heatConsumptionPowerFunction = generateLoadFunction([heatConsumptionPower], 24)
-	TairFunction = generateAreaTemperatureFunction([Tair], 24)
+	heatConsumptionPowerFunction = generateLoadFunction(heatConsumptionPower, 24)
+	TairFunction = generateAreaTemperatureFunction(Tair, 24)
 
 	#=
 	heatConsumptionPowerList = zeros(24)
@@ -130,7 +134,7 @@ function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 
 
 	# 生成低温热泵参数：cpqm_l,k1,dTe_l1,dTe_l2,dTc_l,QhRecycle
-	cpm_h = heatStorageCapacity * heatConsumptionPower / (TstorageTankMax - Tuse)# kWh/K
+	cpm_h = heatStorageCapacity * maxheatPower / (TstorageTankMax - Tuse)# kWh/K
 	storageTankMass = cpm_h / cp_cw * 3600#kg
 	storageTankVolume = storageTankMass / 900#m^3
 
@@ -152,7 +156,8 @@ function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 	latentHeat, cp_cw, cp_cs,
 	TcChangeToElec, TWaste,
 	cpm_h,
-	TstorageTankMax, PheatPumpMax, PelecHeatMax
+	TstorageTankMax, PheatPumpMax, PelecHeatMax,
+	PWaterCompressorMax
 end
 
 # 导入定需求定环境的代码
