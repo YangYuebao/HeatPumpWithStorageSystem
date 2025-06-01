@@ -29,7 +29,7 @@ begin
 	dT_EvaporationStandard = 5.0
 	heatConsumptionPower = 1.0
 	# 计算参数
-	dT = 4.0
+	dT = 2.0
 	temp=1
 	dt = 1/temp# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 	K=temp
@@ -89,33 +89,6 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(HeatPumpWithSto
 	hourlyTariff = hourlyTariff,       # 电价向量
 )
 
-#=
-@time bestValueList,TsMatrix,minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest = HeatPumpWithStorageSystem.testSolve(PressedWaterDoubleStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), ExhaustiveMethod();
-	COPOverlap = COPOverlap,
-	COPWater = COPWater,
-	hourlyTariffFunction = hourlyTariffFunction,
-	heatConsumptionPowerFunction = heatConsumptionPowerFunction,
-	TairFunction = TairFunction,
-	Tuse = Tuse,
-	TCompressorIn = TCompressorIn,
-	dT_EvaporationStandard = dT_EvaporationStandard,
-	latentHeat = latentHeat,
-	cp_cw = cp_cw,
-	cp_cs = cp_cs,
-	TcChangeToElec = TcChangeToElec,
-	TWaste = TWaste,
-	cpm_h = cpm_h,
-	TstorageTankMax = TstorageTankMax,
-	PheatPumpMax = PheatPumpMax,
-	PelecHeatMax = PelecHeatMax,
-	# 求解参数
-	dT = dT,# 状态参数高温蓄热温度离散步长
-	dt = dt,# 时间步长
-	K=K
-)
-=#
-
-# 2025年3月17日07:14:52
 
 @time minCostTest, minTsListTest, P1ListTest, P2ListTest, P3ListTest, PeListTest, C = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), ConstloadandArea(), GoldenRatioMethod();
 	COPOverlap = COPOverlap,
@@ -142,12 +115,12 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(HeatPumpWithSto
 )
 
 
-#= K=2 dt=1.0
-170 3.0 6.68601222715751
-170 3.75 6.341932166742927
-180 3.0 6.692398996519907
-=#
 using Plots, DataFrames, CSV
+
+TsList=collect(120:dT:220)
+df=DataFrame(hcat(TsList,C),vcat(["Ts"],string.(TsList).*"℃"))
+CSV.write(joinpath(pwd(),"calculations","situation7","C.csv"), df)
+
 
 tList = 0:dt:(24-dt)
 

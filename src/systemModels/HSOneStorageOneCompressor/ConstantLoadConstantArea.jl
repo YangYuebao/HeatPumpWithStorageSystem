@@ -549,7 +549,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	P3List = [P3Matrix[minTsList[i], minTsList[i+1]] for i in 1:nt-1]
 	PeList = [PeMatrix[minTsList[i], minTsList[i+1]] for i in 1:nt-1]
 
-	return minCost, TsList[minTsList], P1List, P2List, P3List, PeList
+	return minCost, TsList[minTsList], P1List, P2List, P3List, PeList,C
 end
 
 function testSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost, ::ConstloadandArea, ::ExhaustiveMethod;
