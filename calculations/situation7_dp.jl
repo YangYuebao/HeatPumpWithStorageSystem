@@ -29,7 +29,7 @@ begin
 	dT_EvaporationStandard = 5.0
 	heatConsumptionPower = 1.0
 	# 计算参数
-	dT = 4.0
+	dT = 3.0
 	temp=1
 	dt = 1/temp# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 	K=temp
