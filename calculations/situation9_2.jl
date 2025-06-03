@@ -29,8 +29,8 @@ begin
 	dT_EvaporationStandard = 5.0
 	heatConsumptionPower = 1.0
 	# 计算参数
-	dT = 2.0
-	temp=1
+	dT = 0.5
+	temp=1.0
 	dt = 1/temp# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 	K=temp
 
@@ -52,8 +52,9 @@ begin
 		eta_s = eta_s,# 绝热效率
 		dT = min(dT,1.0),# 插值步长
 	)
-	#COP2_design=COPOverlap(TWaste, Tuse)
-	COP2_design=1.0
+	COP2_design=COPOverlap(TWaste, Tuse)
+	#COP2_design=1.0
+	COPWater_design = COPWater(TCompressorIn,Tuse)
 end
 
 #=
@@ -73,6 +74,7 @@ cpm_h,
 TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterOneStorageOneCompressor();
 	overlapRefrigerant = or,    # 复叠工质
 	COP2_design=COP2_design,
+	COPWater_design=COPWater_design,
 	maxTcHigh = maxTcHigh,                  # 高温热泵冷凝器温度上限
 	TCompressorIn = TCompressorIn,              # 中间温度
 	TWaste = TWaste,                      # 废热源温度
@@ -115,7 +117,8 @@ TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(HeatPumpWithSto
 )
 
 
-using Plots, DataFrames, CSV
+using Plots
+using DataFrames, CSV
 
 TsList=collect(120:dT:220)
 df=DataFrame(hcat(TsList,C),vcat(["Ts"],string.(TsList).*"℃"))
@@ -130,7 +133,7 @@ tList = 0:dt:(24-dt)
 plt = plot(tList .+ 0.5, [P1ListTest P2ListTest P3ListTest PeListTest], label = ["P1" "P2" "P3" "Pe"])
 plot!(plt, tList, minTsListTest[1:end-1] / 220, label = "Ts")
 
-plot(bestValueList[1:1000])
+
 
 #=
 dt	K	Tuse	Storage		Cost		Ts0

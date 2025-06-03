@@ -65,7 +65,7 @@ function getStateTransitionCost_SingleStep(
 		Psout=cpm_h*(Tsstart-Tsaim)/dt
 		P2=Psout / (COP2value-1)
 		if (P2+Psout>heatLoad) || (P2 > PWaterCompressorMax) # 降不到这个温度
-			println("放热1 P2+Psout=$(P2+Psout),heatLoad=$heatLoad,P2=$P2,PWaterCompressorMax=$PWaterCompressorMax")
+			#("放热1 P2+Psout=$(P2+Psout),heatLoad=$heatLoad,P2=$P2,PWaterCompressorMax=$PWaterCompressorMax")
 			return 9999.0,false,9999.0,9999.0,9999.0
 		end
         #先看是不是温度到下限了
@@ -81,10 +81,10 @@ function getStateTransitionCost_SingleStep(
 			#P12h=P12*COP1/COP2((Tsaim+Tsstart)/2-dT_EvaporationStandard,Tuse)
 			#P12l=P12-P12h
             if (Pe1 <= PelecHeatMax) && (Pe2 <= PelecHeatMax) #&& (P1h<=PWaterCompressorMax) && (P12h<=PWaterCompressorMax) #&& (P1l <= PheatPumpLowMax) && (P12l <= PheatPumpLowMax)
-				println("放热2 Pe1=$Pe1 PelecHeatMax=$PelecHeatMax,Pe2=$Pe2,PelecHeatMax=$PelecHeatMax")
+				#println("放热2 Pe1=$Pe1 PelecHeatMax=$PelecHeatMax,Pe2=$Pe2,PelecHeatMax=$PelecHeatMax")
 			    return (P1+P2+Pe)*dt,true,P1,P2,Pe
             else
-				println("放热3")
+				#println("放热3")
                 return 9999.0,false,9999.0,9999.0,9999.0
             end
         end
@@ -132,10 +132,10 @@ function getStateTransitionCost_SingleStep(
 		
 		#P3l = P3 - P3h
 		if (Pe <= PelecHeatMax) #&& (P3h<=PWaterCompressorMax) #&& (P3l <= PheatPumpLowMax)
-			println("蓄热1 Pe=$Pe,PelecHeatMax=$PelecHeatMax")
+			#println("蓄热1 Pe=$Pe,PelecHeatMax=$PelecHeatMax")
 			return (P1Only + P3 + Pe) * dt, true, P1Only, P3, Pe
 		else
-			println("蓄热2 Pe=$Pe,PelecHeatMax=$PelecHeatMax")
+			#println("蓄热2 Pe=$Pe,PelecHeatMax=$PelecHeatMax")
 			return 9999.0,false,9999.0,9999.0,9999.0
 		end
 	end
@@ -228,14 +228,14 @@ function getStateTransitionCost_SingleStep(
 
 	for (j,Tsaim) in enumerate(TsListEnd)
 		for (i,Tsstart) in enumerate(TsListStart)
-			println("Tsaim=$Tsaim, Tsstart=$Tsstart")		
+			#println("Tsaim=$Tsaim, Tsstart=$Tsstart")		
 			# 先计算温度下降的功率,存在一边电加热一边开2号模式的情况
 			if Tsstart<Tsmin || Tsaim>Tsmax
 				C[i, j] = 9999.0
 				P1Matrix[i, j] = 9999.0
 				P3Matrix[i, j] = 9999.0
 				PeMatrix[i, j] = 9999.0
-				println(0," C=",C[i, j])
+				#println(0," C=",C[i, j])
 			elseif Tsaim < Tsstart
 				costValue,flag,P1,P2,Pe=powerCalculate_disCharge(Tsaim, Tsstart, dt)
 				if flag
@@ -244,12 +244,12 @@ function getStateTransitionCost_SingleStep(
 					P2Matrix[i, j] = P2
 					PeMatrix[i, j] = Pe
 				end
-				println(1," C=",C[i, j])
+				#println(1," C=",C[i, j])
 			elseif Tsaim == Tsstart
 				P1Matrix[i, j] = P1Only
 				PeMatrix[i, j] = heatLoad-P1Only*COP1
 				C[i, j]=(P1Matrix[i, j]+PeMatrix[i, j])*dt
-				println(2," C=",C[i, j])
+				#println(2," C=",C[i, j])
 			elseif Tsaim > Tsstart
 				if Tsaim <= Tuse - dT_EvaporationStandard
 					C1, flag, P1, P3, Pe = powerCalculate_lowTs(Tsaim, Tsstart, dt)
@@ -259,7 +259,7 @@ function getStateTransitionCost_SingleStep(
 						P3Matrix[i, j] = P3
 						PeMatrix[i, j] = Pe
 					end
-					println(3.1," C=",C[i, j])
+					#println(3.1," C=",C[i, j])
 					#C[i, j] = flag ? C1 : 99
 				elseif Tsstart < Tuse - dT_EvaporationStandard < Tsaim
 					dt1 = (Tuse - dT_EvaporationStandard - Tsstart) / (Tsaim - Tsstart) * dt
@@ -273,7 +273,7 @@ function getStateTransitionCost_SingleStep(
 						P3Matrix[i, j] = (P31 * dt1 + P32 * dt2) / dt
 						PeMatrix[i, j] = (Pe1 * dt1 + Pe2 * dt2) / dt
 					end
-					println(3.2," C=",C[i, j])
+					#println(3.2," C=",C[i, j])
 				elseif Tsstart >= Tuse - dT_EvaporationStandard
 					C1, flag, P1, P3, Pe = powerCalculate_highTs(Tsaim, Tsstart, dt)
 					if flag
@@ -282,7 +282,7 @@ function getStateTransitionCost_SingleStep(
 						P3Matrix[i, j] = P3
 						PeMatrix[i, j] = Pe
 					end
-					println(3.3," C=",C[i, j])
+					#println(3.3," C=",C[i, j])
 				end
 			end
 		end
@@ -400,7 +400,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 )
 	tList = 0:dt:24
 
-	dT_origin=4.0
+	dT_origin=0.5
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax,1,length(tList))
 	
@@ -443,14 +443,14 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		dt = dt, # 时间步长
 		smoother = smoother
 	)
-	println(nt)
+	#println(nt)
 	for i=1:nt-1
 		CSV.write(joinpath(pwd(),"test","persionalTest","看看C","C_$(i).csv"),DataFrame(C[i,:,:],:auto))
 		println("看看C","C_$(i).csv")
 	end
 	## 动态规划求解
 	cost, TsIndex=GoldenRatioSolver(nT,nt,C)
-	TsList = map(i->TsMatrix[i,TsIndex[i]],1:nt)
+	TsList = map(i->TsMatrix[TsIndex[i],i],1:nt)
 
 	# 开始改良解
 	nT=11
@@ -476,6 +476,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			cp_cw = cp_cw,# 循环水定压热容
 			TcChangeToElec = TcChangeToElec,
 			TWaste = TWaste,# 废热回收蒸发器温度
+			TCompressorIn=TCompressorIn,
 			# 高温蓄热参数
 			cpm_h = cpm_h,# 高温蓄热热容
 			# 设备运行约束
@@ -491,7 +492,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		)
 		## 动态规划求解
 		cost, TsIndex=GoldenRatioSolver(nT,nt,C)
-		TsList = map(i->TsMatrix[i,TsIndex[i]],1:nt)
+		TsList = map(i->TsMatrix[TsIndex[i],i],1:nt)
 		flag_nextgap=true
 		for j = 1:nt #范围调整
 			if TsIndex[j]==1 || TsIndex[j]==nT # 温度范围要更小
@@ -508,10 +509,10 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		end
 	end
 
-	P1List = map(i->P1Matrix[i,TsIndex[i]],1:nt)
-	P2List = map(i->P2Matrix[i,TsIndex[i]],1:nt)
-	P3List = map(i->P3Matrix[i,TsIndex[i]],1:nt)
-	PeList = map(i->PeMatrix[i,TsIndex[i]],1:nt)
+	P1List = map(i->P1Matrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
+	P2List = map(i->P2Matrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
+	P3List = map(i->P3Matrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
+	PeList = map(i->PeMatrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
 
 	return cost, TsList, P1List, P2List, P3List, PeList
 end
@@ -527,8 +528,9 @@ function dpSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost, ::VaryLo
 	nt = size(C, 1)
 	TsTransitionMatrix = zeros(nT, nt)
 	# 第一步
-	VForward = C[j, :,1]
+	VForward = C[1,j, :]
 	TsTransitionMatrix[:, 1] .= j#TsTransitionMatrix[:,i]表示第i+1个时层上的前驱节点
+
 	for i in 2:nt
 		VForward, TsTransitionMatrix[:, i] = forwardSolve(
 			VaryLoadVaryArea(),VForward,C[i,:,:],nT
@@ -536,15 +538,16 @@ function dpSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost, ::VaryLo
 	end
 
 	valueMin = VForward[j]
-	println(VForward)
+	#println(VForward)
 	# 状态回溯
 	#valueMin=VForward[j] # 在第j个温度下的最优成本
-	TsIndexList = Vector{Int}(undef, nt)
-	TsIndexList[nt] = j
-	for i in nt-1:-1:1
-		println(i," ",TsIndexList[i+1])
+	TsIndexList = Vector{Int}(undef, nt+1)
+	TsIndexList[nt+1] = j
+	for i in nt:-1:2
+		#println(i," ",TsIndexList[i+1])
 		TsIndexList[i] = TsTransitionMatrix[TsIndexList[i+1], i]
 	end
+	TsIndexList[1]=j
 
 	return valueMin, TsIndexList
 end
@@ -574,13 +577,17 @@ function GoldenRatioSolver(
 	valueList = zeros(4)
 	TsIndexListMatirx = zeros(Int, nt, 4)
 	for (i, j) in enumerate(jList)
-		valueList[i], TsIndexListMatirx[:, i] = dpSolve(
+
+		temp1,temp2=dpSolve(
 			PressedWaterOneStorageOneCompressor(),
 			MinimizeCost(),
 			VaryLoadVaryArea();
 			C=C,
 			j=j,
 		)
+
+		valueList[i], TsIndexListMatirx[:, i] = temp1,temp2
+
 	end
 	count = 0
 	while (jList[4] - jList[1] >= 4) && count < 100

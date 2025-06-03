@@ -17,7 +17,7 @@ begin
 
 	or = NH3_Water
 	heatStorageCapacity = 10.0
-	Tuse = 150.0
+	Tuse = 180.0
 
 	# 系数
 	heatPumpServiceCoff = 1.0
@@ -33,7 +33,7 @@ begin
 	#heatConsumptionPower = 1.0
 	# 计算参数
 	dT = 0.1
-	dt = 1/3# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
+	dt = 1.0# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 	smoother=0.1
 
 	COPWater = getCOP(
@@ -44,7 +44,7 @@ begin
 		refWater,# 工质
 		maxCOP,# 最大COP
 		eta_s,# 绝热效率
-		dT,# 插值步长
+		1.0,# 插值步长
 	)
 
 	COPOverlap = getOverlapCOP_fixMidTemperature(
@@ -52,7 +52,7 @@ begin
 		TCompressorIn + or.midTDifference / 2;
 		maxCOP = maxCOP,# 最大COP
 		eta_s = eta_s,# 绝热效率
-		dT = dT,# 插值步长
+		dT = 1.0,# 插值步长
 	)
 	COP2_design=COPOverlap(TWaste, Tuse)
 	COPWater_design = COPWater(TCompressorIn,Tuse)
