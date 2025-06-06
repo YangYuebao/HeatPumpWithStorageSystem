@@ -65,7 +65,6 @@ function getStateTransitionCost_SingleStep(
 		Psout=cpm_h*(Tsstart-Tsaim)/dt
 		P2=Psout / (COP2value-1)
 		if (P2+Psout>heatLoad) || (P2 > PWaterCompressorMax) # 降不到这个温度
-			#("放热1 P2+Psout=$(P2+Psout),heatLoad=$heatLoad,P2=$P2,PWaterCompressorMax=$PWaterCompressorMax")
 			return 9999.0,false,9999.0,9999.0,9999.0
 		end
         #先看是不是温度到下限了
@@ -95,7 +94,7 @@ function getStateTransitionCost_SingleStep(
 			Pe = heatLoad-P2-Psout-P1 * COP1
 			#P1h=P1*COP1/COP2((Tsaim+Tsstart)/2-dT_EvaporationStandard,Tuse)
 			#P1l=P1-P1h
-            if (Pe <= PheatPumpMax) #&& (P1h<=PWaterCompressorMax) #&& (P1l <= PheatPumpLowMax)
+            if (Pe <= PelecHeatMax) #&& (P1h<=PWaterCompressorMax) #&& (P1l <= PheatPumpLowMax)
 			    return (P1+P2+Pe)*dt,true,P1,P2,Pe
             else
                 return 9999.0,false,9999.0,9999.0,9999.0
@@ -103,7 +102,7 @@ function getStateTransitionCost_SingleStep(
 		elseif Tsstart-dT_EvaporationStandard<=Tuse#蓄热温度的初态低于用热温度，放热全程电热补热
 			P1 = 0
 			Pe = heatLoad-P2-Psout
-            if Pe <= PheatPumpMax
+            if Pe <= PelecHeatMax
 			    return (Pe+P2)*dt,true,P1,P2,Pe
             else
                 return 9999.0,false,9999.0,9999.0,9999.0
@@ -128,7 +127,7 @@ function getStateTransitionCost_SingleStep(
 		P3h = min(PWaterCompressorMax-P1hOnly,cpm_h * (Tsaim - Tsstart) / dt / COP2_design / (1+cp_cw/latentHeat*(Tuse-0.5*(Tsstart+Tsaim))))
 
 		P3 = P3h*COP2_design/COP1
-		Pe = heatLoad+cpm_h / dt * (Tsaim - Tsstart) - (P3 + P1hOnly)*COP1
+		Pe = heatLoad+cpm_h / dt * (Tsaim - Tsstart) - (P3 + P1Only)*COP1
 		
 		#P3l = P3 - P3h
 		if (Pe <= PelecHeatMax) #&& (P3h<=PWaterCompressorMax) #&& (P3l <= PheatPumpLowMax)
@@ -144,7 +143,7 @@ function getStateTransitionCost_SingleStep(
 	function powerCalculate_highTs(Tsaim, Tsstart, dt)
 		COP3value = COP3(TWaste, (Tsaim + Tsstart) / 2 + dT_EvaporationStandard)
 		COPWatervalue = COP2(TCompressorIn, (Tsaim + Tsstart) / 2 + dT_EvaporationStandard)
-		function mode1(dt1)# 模式1：电热加热
+		function mode1(dt1)# 模式1：只有电热加热给蓄热储热
 			Pe = cpm_h / dt1 * (Tsaim - Tsstart)+heatLoad-P1Only*COP1
 			if Pe <= PelecHeatMax
 				return true, P1Only, 0.0, Pe
@@ -154,8 +153,9 @@ function getStateTransitionCost_SingleStep(
 			
 		end
 
+		# 模式2：热泵也给蓄热储热（此时热泵COP按照蓄热温度计算）
 		function mode2(Tsaim2, Tsstart2, dt2)
-			# 如果水蒸气压缩机容量没有富余的话，应该优先用热泵为工厂供热，而不是蓄热罐
+			# 如果水蒸气压缩机容量没有富余的话，应该优先用热泵为工厂供热，而不是为蓄热罐储热
 			Psin=cpm_h / dt2 * (Tsaim2 - Tsstart2)#蓄热储热功率
 			P3hin=min(Psin/COPWatervalue,PWaterCompressorMax)
 			k=cp_cw/latentHeat * (Tsaim2 - Tsstart2)#闪蒸回收热比例
@@ -206,7 +206,7 @@ function getStateTransitionCost_SingleStep(
 		if (Tsaim <= TcChangeToElec - dT_EvaporationStandard)	# 该时间层的末态温度小于电加热温度界限
 			flag_2, P1_2, P3_2, Pe_2= mode2(Tsaim,Tsstart,dt)
 			Ptotal_2=P1_2+P3_2+Pe_2
-		else
+		elseif (Tsaim > TcChangeToElec - dT_EvaporationStandard>Tsstart) # 该时间层的温度跨越电加热温度界限
 			tmid=dt*(TcChangeToElec - dT_EvaporationStandard-Tsstart)/(Tsaim - Tsstart)
 			flag_21, P1_21, P3_21, Pe_21= mode2(TcChangeToElec - dT_EvaporationStandard,Tsstart,tmid)
 			flag_22, P1_22, P3_22, Pe_22= mode2(Tsaim,TcChangeToElec - dT_EvaporationStandard,dt-tmid)
@@ -214,6 +214,9 @@ function getStateTransitionCost_SingleStep(
 			P1_2=P1_21*tmid/dt+P1_22*(dt-tmid)/dt
 			P3_2=P3_21*tmid/dt+P3_22*(dt-tmid)/dt
 			Pe_2=Pe_21*tmid/dt+Pe_22*(dt-tmid)/dt
+			Ptotal_2=P1_2+P3_2+Pe_2
+		else# 该时间层初态温度高于电加热温度界线，切换模式1
+			flag_2, P1_2, P3_2, Pe_2=mode1(dt)
 			Ptotal_2=P1_2+P3_2+Pe_2
 		end
 		if (Ptotal_2 < Ptotal)
@@ -362,7 +365,7 @@ function getStateTransitionCost(::PressedWaterOneStorageOneCompressor, ::VaryLoa
 			TsListEnd=TsListEnd[:,i],
 			dt=dt,
 		)
-		C_smoothed[i,:,:]=C_singlestep*costGrid[i]+smoother*(P3Matrix[i,:,:].^2+PeMatrix[i,:,:].^2)
+		C_smoothed[i,:,:]=C_singlestep*costGrid[i]+smoother*(P1Matrix[i,:,:].^2+P2Matrix[i,:,:].^2+P3Matrix[i,:,:].^2+PeMatrix[i,:,:].^2)
 	end
 	
 	return C_smoothed, P1Matrix, P2Matrix, P3Matrix, PeMatrix
@@ -400,7 +403,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 )
 	tList = 0:dt:24
 
-	dT_origin=0.5
+	dT_origin=2.0
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax,1,length(tList))
 	
@@ -444,10 +447,10 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		smoother = smoother
 	)
 	#println(nt)
-	for i=1:nt-1
-		CSV.write(joinpath(pwd(),"test","persionalTest","看看C","C_$(i).csv"),DataFrame(C[i,:,:],:auto))
-		println("看看C","C_$(i).csv")
-	end
+	# for i=1:nt-1
+	# 	CSV.write(joinpath(pwd(),"test","persionalTest","看看C","C_$(i).csv"),DataFrame(C[i,:,:],:auto))
+	# 	println("看看C","C_$(i).csv")
+	# end
 	## 动态规划求解
 	cost, TsIndex=GoldenRatioSolver(nT,nt,C)
 	TsList = map(i->TsMatrix[TsIndex[i],i],1:nt)
@@ -544,7 +547,7 @@ function dpSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost, ::VaryLo
 	TsIndexList = Vector{Int}(undef, nt+1)
 	TsIndexList[nt+1] = j
 	for i in nt:-1:2
-		#println(i," ",TsIndexList[i+1])
+		println(i," ",TsIndexList[i+1])
 		TsIndexList[i] = TsTransitionMatrix[TsIndexList[i+1], i]
 	end
 	TsIndexList[1]=j
@@ -577,7 +580,6 @@ function GoldenRatioSolver(
 	valueList = zeros(4)
 	TsIndexListMatirx = zeros(Int, nt, 4)
 	for (i, j) in enumerate(jList)
-
 		temp1,temp2=dpSolve(
 			PressedWaterOneStorageOneCompressor(),
 			MinimizeCost(),
@@ -623,7 +625,7 @@ function GoldenRatioSolver(
 			)
 		end
 		count += 1
-		println("$count/$nT", "j1=$(jList[1]),j2=$(jList[2]),j3=$(jList[3]),j4=$(jList[4])")
+		#println("$count/$nT", "j1=$(jList[1]),j2=$(jList[2]),j3=$(jList[3]),j4=$(jList[4])")
 	end
 
 	minCost, index = findmin(valueList)

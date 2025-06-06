@@ -59,8 +59,8 @@ begin
 		eta_s = eta_s,# 绝热效率
 		dT = dT,# 插值步长
 	)
-	#COP2_design=COPOverlap(TWaste, Tuse)
-	COP2_design=1.0
+	#COP1_design=COPOverlap(TWaste, Tuse)
+	COP1_design=1.0
 end
 
 #=
@@ -79,7 +79,7 @@ TcChangeToElec, TWaste,
 cpm_h,
 TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterOneStorageOneCompressor();
 	overlapRefrigerant = or,    # 复叠工质
-	COP2_design=COP2_design,
+	COP1_design=COP1_design,
 	maxTcHigh = maxTcHigh,                  # 高温热泵冷凝器温度上限
 	TCompressorIn = TCompressorIn,              # 中间温度
 	TWaste = TWaste,                      # 废热源温度

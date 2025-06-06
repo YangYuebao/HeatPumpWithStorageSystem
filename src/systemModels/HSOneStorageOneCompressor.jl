@@ -81,7 +81,7 @@ end
 """
 function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 	overlapRefrigerant::OverlapRefrigerant = NH3_Water,# 复叠工质
-	COP2_design::Real = 2.1301295025490354,
+	COP1_design::Real = 2.1301295025490354,
 	COPWater_design::Real = 3.0,
 	maxTcHigh::Real = 180.0,  # 高温热泵冷凝器温度上限
 	TCompressorIn::Real = 115.0,# 中间温度
@@ -112,7 +112,7 @@ function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 
 	# 计算热泵基础功率和实际配置功率
 	maxheatPower=maximum(heatConsumptionPower)
-	P1base =  maxheatPower / COP2_design
+	P1base =  maxheatPower / COP1_design
 	PheatPumpMax = P1base * heatPumpServiceCoff
 	PelecHeatMax = maxheatPower * heatStorageCapacity / maxheatStorageInputHour
 	PWaterCompressorMax = maxheatPower/COPWater_design

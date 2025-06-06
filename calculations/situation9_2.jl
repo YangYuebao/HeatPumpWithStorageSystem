@@ -14,7 +14,7 @@ begin
 
 	or = NH3_Water
 	heatStorageCapacity = 10.0
-	Tuse = 180.0
+	Tuse = 150.0
 
 	# 系数
 	heatPumpServiceCoff = 1.0
@@ -29,7 +29,7 @@ begin
 	dT_EvaporationStandard = 5.0
 	heatConsumptionPower = 1.0
 	# 计算参数
-	dT = 0.5
+	dT = 0.025
 	temp=1.0
 	dt = 1/temp# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 	K=temp
@@ -63,8 +63,8 @@ begin
 		eta_s = eta_s,# 绝热效率
 		dT = min(dT,1.0),# 插值步长
 	)
-	COP2_design=COPOverlap(TWaste, Tuse)
-	#COP2_design=1.0
+	COP1_design=COPOverlap(TWaste, Tuse)
+	#COP1_design=1.0
 	COPWater_design = COPWater(TCompressorIn,Tuse)
 	COPLow_design = COPLow(TWaste,TCompressorIn+dT_EvaporationStandard)
 end
@@ -86,7 +86,7 @@ cpm_h,
 TstorageTankMax, PheatPumpMax, PelecHeatMax,
 PWaterCompressorMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterOneStorageOneCompressor();
 	overlapRefrigerant = or,    # 复叠工质
-	COP2_design=COP2_design,
+	COP1_design=COP1_design,
 	COPWater_design=COPWater_design,
 	maxTcHigh = maxTcHigh,                  # 高温热泵冷凝器温度上限
 	TCompressorIn = TCompressorIn,              # 中间温度
@@ -143,7 +143,7 @@ tList = 0:dt:(24-dt)
 # 看看不同的初始温度下运行费用的变化
 
 # 看看最优运行费用下蓄热温度的变化
-plt = plot(tList .+ 0.5, [P1ListTest P2ListTest P3ListTest PeListTest], label = ["P1" "P2" "P3" "Pe"])
+plt = plot(tList .+ 0.5, [P1ListTest P2ListTest P3ListTest PeListTest], label = ["P1" "P2" "P3" "Pe"],ylims=(0,2.5))
 plot!(plt, tList, minTsListTest[1:end-1] / 220, label = "Ts")
 
 

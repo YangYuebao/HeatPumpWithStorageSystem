@@ -17,7 +17,7 @@ begin
 
 	or = NH3_Water
 	heatStorageCapacity = 10.0
-	Tuse = 180.0
+	Tuse = 150.0
 
 	# 系数
 	heatPumpServiceCoff = 1.0
@@ -33,8 +33,8 @@ begin
 	#heatConsumptionPower = 1.0
 	# 计算参数
 	dT = 0.1
-	dt = 1.0# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
-	smoother=0.1
+	dt = 1/3# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
+	smoother=0.001
 
 	COPWater = getCOP(
 		TCompressorIn,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
@@ -46,7 +46,16 @@ begin
 		eta_s,# 绝热效率
 		1.0,# 插值步长
 	)
-
+	COPLow = getCOP(
+		-10.0,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
+		125.0,# 蒸发温度上限
+		20.0,# 冷凝温度下限
+		125,# 冷凝温度上限
+		or.refrigerantLow,# 工质
+		maxCOP,# 最大COP
+		eta_s,# 绝热效率
+		min(dT,1.0),# 插值步长
+	)
 	COPOverlap = getOverlapCOP_fixMidTemperature(
 		or,
 		TCompressorIn + or.midTDifference / 2;
@@ -54,9 +63,10 @@ begin
 		eta_s = eta_s,# 绝热效率
 		dT = 1.0,# 插值步长
 	)
-	COP2_design=COPOverlap(TWaste, Tuse)
+	COP1_design=COPOverlap(TWaste, Tuse)
 	COPWater_design = COPWater(TCompressorIn,Tuse)
-	#COP2_design=1.0
+	COPLow_design = COPLow(TWaste,TCompressorIn+dT_EvaporationStandard)
+	#COP1_design=1.0
 end
 
 #=
@@ -76,7 +86,7 @@ cpm_h,
 TstorageTankMax, PheatPumpMax, PelecHeatMax,
 PWaterCompressorMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterOneStorageOneCompressor();
 	overlapRefrigerant = or,    # 复叠工质
-	COP2_design=COP2_design,
+	COP1_design=COP1_design,
 	COPWater_design=COPWater_design,
 	maxTcHigh = maxTcHigh,                  # 高温热泵冷凝器温度上限
 	TCompressorIn = TCompressorIn,              # 中间温度
@@ -119,14 +129,37 @@ PWaterCompressorMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterO
 	# 求解参数
 	dT = dT/10,# 状态参数高温蓄热温度离散步长
 	dt = dt,# 时间步长
-	smoother=smoother
+	smoother=0.0
 )
 
-#= K=2 dt=1.0
-170 3.0 6.68601222715751
-170 3.75 6.341932166742927
-180 3.0 6.692398996519907
-=#
+@time minCostTest2, minTsListTest2, P1ListTest2, P2ListTest2, P3ListTest2, PeListTest2 = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
+	COPOverlap = COPOverlap,
+	COPWater = COPWater,
+	hourlyTariffFunction = hourlyTariffFunction,
+	heatConsumptionPowerFunction = heatConsumptionPowerFunction,
+	TairFunction = TairFunction,
+	Tuse = Tuse,
+	TCompressorIn = TCompressorIn,
+	dT_EvaporationStandard = dT_EvaporationStandard,
+	latentHeat = latentHeat,
+	cp_cw = cp_cw,
+	cp_cs = cp_cs,
+	TcChangeToElec = TcChangeToElec,
+	TWaste = TWaste,
+	cpm_h = cpm_h,
+	TstorageTankMax = TstorageTankMax,
+	PheatPumpMax = PheatPumpMax,
+	PelecHeatMax = PelecHeatMax,
+	PWaterCompressorMax = PWaterCompressorMax,#水蒸气压缩机最大功率
+	Tsmin=120.0,
+	# 求解参数
+	dT = dT/10,# 状态参数高温蓄热温度离散步长
+	dt = dt,# 时间步长
+	smoother=0.001
+)
+
+minCostTest2-=0.001*(sum(abs2.(P1ListTest2))+sum(abs2.(P2ListTest2))+sum(abs2.(P3ListTest2))+sum(abs2.(PeListTest2)))
+
 using Plots, DataFrames, CSV
 
 tList = 0:dt:(24-dt)
@@ -134,18 +167,8 @@ tList = 0:dt:(24-dt)
 # 看看不同的初始温度下运行费用的变化
 
 # 看看最优运行费用下蓄热温度的变化
-plt = plot(tList .+ 0.5, [P1ListTest P2ListTest P3ListTest PeListTest], label = ["P1" "P2" "P3" "Pe"])
+plt = plot(tList .+ 0.5, [P1ListTest P2ListTest P3ListTest PeListTest], label = ["P1" "P2" "P3" "Pe"],ylims=(0,2.5))
 plot!(plt, tList, minTsListTest[1:end-1] / 220, label = "Ts")
 
-plot(bestValueList[1:1000])
-
-#=
-dt	K	Tuse	Storage		Cost		Ts0
-1/3 12	170		3.0			6.68052		132.18
-1.0 12	170		3.0			6.68007		137.83
-1/2	6	170		3.0			6.68341		140.5
-1.0	1	170		3.0			6.69800		130.3
-1/2	2	170		3.0			6.70000		139.35
-1/2 8	170		3.0			6.68623		134.68
-=#
-
+plt2 = plot(tList .+ 0.5, [P1ListTest2 P2ListTest2 P3ListTest2 PeListTest2], label = ["P1" "P2" "P3" "Pe"],ylims=(0,2.5))
+plot!(plt2, tList, minTsListTest2[1:end-1] / 220, label = "Ts")
