@@ -45,6 +45,17 @@ begin
 		min(dT,1.0),# 插值步长
 	)
 
+	COPLow = getCOP(
+		-10.0,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
+		125.0,# 蒸发温度上限
+		20.0,# 冷凝温度下限
+		125,# 冷凝温度上限
+		or.refrigerantLow,# 工质
+		maxCOP,# 最大COP
+		eta_s,# 绝热效率
+		min(dT,1.0),# 插值步长
+	)
+
 	COPOverlap = getOverlapCOP_fixMidTemperature(
 		or,
 		TCompressorIn + or.midTDifference / 2;
@@ -55,6 +66,7 @@ begin
 	COP2_design=COPOverlap(TWaste, Tuse)
 	#COP2_design=1.0
 	COPWater_design = COPWater(TCompressorIn,Tuse)
+	COPLow_design = COPLow(TWaste,TCompressorIn+dT_EvaporationStandard)
 end
 
 #=
@@ -71,7 +83,8 @@ dT_EvaporationStandard,
 latentHeat, cp_cw, cp_cs,
 TcChangeToElec, TWaste,
 cpm_h,
-TstorageTankMax, PheatPumpMax, PelecHeatMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterOneStorageOneCompressor();
+TstorageTankMax, PheatPumpMax, PelecHeatMax,
+PWaterCompressorMax = generateSystemCoff(HeatPumpWithStorageSystem.PressedWaterOneStorageOneCompressor();
 	overlapRefrigerant = or,    # 复叠工质
 	COP2_design=COP2_design,
 	COPWater_design=COPWater_design,

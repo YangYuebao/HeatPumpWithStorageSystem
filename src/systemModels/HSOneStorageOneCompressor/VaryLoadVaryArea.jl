@@ -41,7 +41,7 @@ function getStateTransitionCost_SingleStep(
 )
 	COP1 = COPOverlap(TWaste, Tuse)
 	COP2 = COPWater
-	COP2_design=COP2(TCompressorIn,Tuse)
+	COP2_design = COP2(TCompressorIn,Tuse)
 	COP3 = COPOverlap
 	heatLoadPumpMax=PWaterCompressorMax*COP2_design	# 热泵设计的供热功率
 
