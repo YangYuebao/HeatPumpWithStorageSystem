@@ -4,7 +4,7 @@ using HeatPumpWithStorageSystem
 
 begin
 	# 夏季7-8月,315千伏安以上，有尖峰
-	hourlyTariff = ones(49)
+	hourlyTariff = ones(48)
 	p=1.7
 	pp=p*1.2
 	v=0.35
@@ -16,7 +16,7 @@ begin
 	hourlyTariff[31:39] .= p
 	hourlyTariff[40:43] .= pp
 	hourlyTariff[44] = p
-	hourlyTariff[49] = hourlyTariff[1]
+
 
 	Tair = vcat(
 		fill(26.0, 7),
