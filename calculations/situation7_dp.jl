@@ -29,10 +29,11 @@ begin
 	dT_EvaporationStandard = 5.0
 	heatConsumptionPower = 1.0
 	# 计算参数
-	dT = 3.0
-	temp=1
+	
+	temp=3
+	dT = 0.05/temp
 	dt = 1/temp# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
-	K=temp
+	K=1
 
 	COPWater = getCOP(
 		TCompressorIn,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
@@ -42,7 +43,8 @@ begin
 		refWater,# 工质
 		maxCOP,# 最大COP
 		eta_s,# 绝热效率
-		min(dT,1.0),# 插值步长
+		#min(dT,1.0),# 插值步长
+		1.0
 	)
 
 	COPOverlap = getOverlapCOP_fixMidTemperature(
@@ -50,7 +52,8 @@ begin
 		TCompressorIn + or.midTDifference / 2;
 		maxCOP = maxCOP,# 最大COP
 		eta_s = eta_s,# 绝热效率
-		dT = min(dT,1.0),# 插值步长
+		#dT = min(dT,1.0),# 插值步长
+		dT = 1.0,# 插值步长
 	)
 	#COP1_design=COPOverlap(TWaste, Tuse)
 	COP1_design=1.0

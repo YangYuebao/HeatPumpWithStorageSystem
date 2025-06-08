@@ -31,11 +31,11 @@ begin
 	workingStartHour = 0                # 生产开始时间
 	workingHours = 24                   # 每日工作小时数
 	TWaste = 30.0                     # 废热源温度
-	Tair = 25.0                        # 外部环境温度
+	Tair = fill(25.0,25)                        # 外部环境温度
 	TCompressorIn = 115.0
 	maxTcHigh = 180.0
 	dT_EvaporationStandard = 5.0
-	heatConsumptionPower = 1.0
+	heatConsumptionPower = heatConsumptionPower = fill(1.0, 25)
 	# 计算参数
 	dT = 1.0
 	dt = 1.0# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
