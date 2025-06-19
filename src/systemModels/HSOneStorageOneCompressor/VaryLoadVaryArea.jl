@@ -246,9 +246,12 @@ function getStateTransitionCost_SingleStep(
 					PeMatrix[i, j] = Pe
 				end
 			elseif Tsaim == Tsstart
-				P1Matrix[i, j] = P1Only
-				PeMatrix[i, j] = heatLoad-P1Only*COP1
-				C[i, j]=(P1Matrix[i, j]+PeMatrix[i, j])*dt
+				temp = heatLoad-P1Only*COP1
+				if temp <= PelecHeatMax
+					P1Matrix[i, j] = P1Only
+					PeMatrix[i, j] = temp
+					C[i, j]=(P1Matrix[i, j]+PeMatrix[i, j])*dt
+				end
 			elseif Tsaim > Tsstart
 				if Tsaim <= Tuse - dT_EvaporationStandard
 					C1, flag, P1, P3, Pe = powerCalculate_lowTs(Tsaim, Tsstart, dt)
@@ -315,7 +318,7 @@ function getStateTransitionCost(::PressedWaterOneStorageOneCompressor, ::VaryLoa
 	TsListStart::Matrix,# 状态参数高温蓄热温度起始值列表
 	TsListEnd::Matrix,# 状态参数高温蓄热温度结束值列表
 	dt::Real = 1.0,# 时间步长
-	smoother::Real = 0.01,# 状态转移平滑系数
+	smoother::Real = 1e-8,# 状态转移平滑系数
 )
 	nt=24.0/dt |> Int#环节数
 	nT=size(TsListStart,1)
@@ -396,7 +399,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 )
 	tList = 0:dt:24
 
-	dT_origin=1.0
+	dT_origin=4.0
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax,1,length(tList))
 	
@@ -455,7 +458,11 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	for j = 1:nt
 		TsMatrix[:,j] = TsList[j]-5*dT_origin:dT_origin:TsList[j]+5*dT_origin
 	end
-	while dT_origin>dT
+	countAll=0
+	countSingleGap=0
+	maxcount=500
+	df=DataFrame()
+	while dT_origin>dT && countAll<maxcount
 		C, P1Matrix, P2Matrix, P3Matrix, PeMatrix = getStateTransitionCost(
 			PressedWaterOneStorageOneCompressor(),
 			VaryLoadVaryArea();
@@ -488,26 +495,44 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		## 动态规划求解
 		cost, TsIndex=GoldenRatioSolver(nT,nt,C)
 		TsList = map(i->TsMatrix[TsIndex[i],i],1:nt)
+		df[!,"$countAll"]=TsList
 		flag_nextgap=true
 		for j = 1:nt #范围调整
 			if TsIndex[j]==1 || TsIndex[j]==nT # 温度范围要更小
-				TsMatrix[:,j]=TsList[j]-5*dT_origin:dT_origin:TsList[j]+5*dT_origin
+				TsMatrix[:,j]=TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
 				flag_nextgap=false
 			end
 		end
 		# 如果没有范围调整，那么减小间隔
 		if flag_nextgap
-			dT_origin/=2
+			# =dT_origin/2*(1+0.5*(rand()-0.5))
+			dT_origin=dT_origin/2*(1+0.5*(rand()-0.5))
 			for j = 1:nt
-				TsMatrix[:,j] = TsList[j]-5*dT_origin:dT_origin:TsList[j]+5*dT_origin
+				TsMatrix[:,j] = TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
+			end
+		else
+			countSingleGap+=1
+			if countSingleGap>6
+				dT_origin=dT_origin*2*(1+0.5*(rand()-0.5))
+				for j = 1:nt
+					TsMatrix[:,j] = TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
+				end
 			end
 		end
+		countAll+=1
 	end
+	# println("countAll:$countAll"," dT_origin:$dT_origin")
+	# if countAll==maxcount
+	# 	CSV.write(joinpath(pwd(),"test","persionalTest","看看为啥震荡","震荡.csv"),df)
+	# 	@warn "failed to solve"
+	# end
 
 	P1List = map(i->P1Matrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
 	P2List = map(i->P2Matrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
 	P3List = map(i->P3Matrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
 	PeList = map(i->PeMatrix[i,TsIndex[i],TsIndex[i+1]],1:nt-1)
+
+	realCost = cost-smoother*(sum(abs2.(P1List))+sum(abs2.(P2List))+sum(abs2.(P3List))+sum(abs2.(PeList)))
 
 	return cost, TsList, P1List, P2List, P3List, PeList
 end
@@ -540,7 +565,7 @@ function dpSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost, ::VaryLo
 	#valueMin=VForward[j] # 在第j个温度下的最优成本
 	TsIndexList = Vector{Int}(undef, nt+1)
 	TsIndexList[nt+1] = j
-	println("begin nt=",nt," j=",j)
+	#println("begin nt=",nt," j=",j)
 	for i in nt:-1:2
 		# println(i," ",TsIndexList[i+1])
 		TsIndexList[i] = TsTransitionMatrix[TsIndexList[i+1], i]
@@ -551,7 +576,7 @@ function dpSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost, ::VaryLo
 end
 
 function forwardSolve(::VaryLoadVaryArea,VForward::Vector,C::Matrix,nT::Int)
-	VForwardNew=fill(9999.0,nT)
+	VForwardNew=fill(99999.0,nT)
 	lastTsIndex=zeros(nT)
 	for j in 1:nT
 		for i in 1:nT

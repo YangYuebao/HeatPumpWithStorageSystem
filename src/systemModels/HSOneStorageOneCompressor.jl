@@ -115,7 +115,7 @@ function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 	P1base =  maxheatPower / COP1_design
 	PheatPumpMax = P1base * heatPumpServiceCoff
 	PelecHeatMax = maxheatPower * heatStorageCapacity / maxheatStorageInputHour
-	PWaterCompressorMax = maxheatPower/COPWater_design
+	PWaterCompressorMax = maxheatPower/COPWater_design * heatPumpServiceCoff
 
 	# 生成需求与环境函数
 	hourlyTariffFunction = generateGridPriceFunction(hourlyTariff, 24)
