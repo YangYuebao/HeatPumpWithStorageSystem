@@ -252,6 +252,11 @@ function getStateTransitionCost_SingleStep(
 					PeMatrix[i, j] = temp
 					C[i, j]=(P1Matrix[i, j]+PeMatrix[i, j])*dt
 				end
+				#=
+				P1Matrix[i, j] = P1Only
+				PeMatrix[i, j] = heatLoad-P1Only*COP1
+				C[i, j]=(P1Matrix[i, j]+PeMatrix[i, j])*dt
+				=#
 			elseif Tsaim > Tsstart
 				if Tsaim <= Tuse - dT_EvaporationStandard
 					C1, flag, P1, P3, Pe = powerCalculate_lowTs(Tsaim, Tsstart, dt)

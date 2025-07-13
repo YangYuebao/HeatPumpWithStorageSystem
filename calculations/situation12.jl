@@ -9,18 +9,18 @@ using DataFrames, CSV
 
 function main()
 	situation = "situation12"
-	hourlyTariff = ones(48)
+	hourlyTariff = ones(48)*0.7393
 	p=1.7
 	pp=p*1.2
 	v=0.35
 	vv=v*0.8
 
-	hourlyTariff[1:12] .= v
-	hourlyTariff[23:26] .= v
-	hourlyTariff[29:30] .= pp
-	hourlyTariff[31:39] .= p
-	hourlyTariff[40:43] .= pp
-	hourlyTariff[44] = p
+	hourlyTariff[1:12] .*= v
+	hourlyTariff[23:26] .*= v
+	hourlyTariff[29:30] .*= pp
+	hourlyTariff[31:39] .*= p
+	hourlyTariff[40:43] .*= pp
+	hourlyTariff[44] *= p
 
 	Tair = vcat(
 		fill(26.0, 7),
@@ -155,11 +155,11 @@ function main()
 				workingHours,
 				0.0,
 				0.0,
-				PLowMAX*temp2,
-				PHighMAX*temp2,
+				PLowMAX,
+				PHighMAX,
 				0.0,
 				temp*sum(hourlyTariff)*dt,
-				temp*(nt-1)
+				temp*(nt-1)*dt
 			])
 
 			for heatStorageCapacity in heatStorageCapacityList
@@ -299,10 +299,10 @@ function main()
 				PLowMAX=maximum(PLowList)
 				PHighMAX=maximum(PHighList)
 				temp = PLowMAX+PHighMAX
-				if temp <1
-					PLowMAX /= temp
-					PHighMAX /= temp
-				end
+				# if temp <1
+				# 	PLowMAX /= temp
+				# 	PHighMAX /= temp
+				# end
 				#[:工作时长, :蓄热时长, :承压水体积, :低温热泵总功率, :高温热泵总功率, :电加热功率, :每天运行费用, :总电度]
 				push!(dfEconomic, [
 					workingHours,
