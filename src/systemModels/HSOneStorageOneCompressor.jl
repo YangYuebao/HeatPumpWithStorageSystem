@@ -79,7 +79,7 @@ end
 """
 输入一定系统结构和工作参数,返回系统计算需要用到的各种向量
 """
-function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
+function generateSystemCoff(::T;
 	overlapRefrigerant::OverlapRefrigerant = NH3_Water,# 复叠工质
 	COP1_design::Real = 2.1301295025490354,
 	COPWater_design::Real = 3.0,
@@ -97,7 +97,7 @@ function generateSystemCoff(::PressedWaterOneStorageOneCompressor;
 	workingHours::Int = 16,                 # 每日工作小时数
 	heatPumpServiceCoff::Real = 1.2,        # 热泵功率服务系数
 	hourlyTariff::Vector = fill(0.7, 24),   # 电价向量
-)
+) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
 	# COP函数外部生成
 	# 计算工作时间
 	temp = workingHours
