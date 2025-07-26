@@ -35,7 +35,8 @@ export HeatPumpStoragePhaseChange,
 	PressedWaterDoubleStorageSimplified,
 	PressedWaterDoubleStorageOneCompressor,
 	PressedWaterOneStorageOneCompressor,
-	PressedWaterOneStorageOneCompressor000
+	OOTest,
+  OO000, OO001, OO010, OO011, OO100, OO101
 
 abstract type SystemObjectiveType end
 struct MinimizeCost <: SystemObjectiveType end# 最小化成本
