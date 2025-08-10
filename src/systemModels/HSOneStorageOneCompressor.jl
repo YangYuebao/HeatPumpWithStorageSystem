@@ -68,7 +68,8 @@ end
 
 """生成负载需求函数"""
 function generateLoadFunction(loadList::Vector, duration::Real)
-	functionInterpolationGenerator(loadList, duration, LinearGenerateCycled())
+	#functionInterpolationGenerator(loadList, duration, LinearGenerateCycled())
+	functionInterpolationGenerator(loadList, duration, BackwardGenerate())
 end
 
 """生成环境温度函数"""

@@ -99,7 +99,8 @@ function getStateTransitionCost_SingleStep(
             else
                 return 9999.0,false,9999.0,9999.0,9999.0
             end
-		elseif Tsstart-dT_EvaporationStandard<=Tuse#蓄热温度的初态低于用热温度，放热全程电热补热
+		elseif Tsstart-dT_EvaporationStandard<=Tuse
+			#蓄热温度的初态低于用热温度，放热全程电热补热
 			P1 = 0
 			Pe = heatLoad-P2-Psout
             if Pe <= PelecHeatMax
@@ -126,8 +127,11 @@ function getStateTransitionCost_SingleStep(
 		# 主要看水蒸气压缩机有没有余量
 		P3h = min(PWaterCompressorMax-P1hOnly,cpm_h * (Tsaim - Tsstart) / dt / COP2_design / (1+cp_cw/latentHeat*(Tuse-0.5*(Tsstart+Tsaim))))
 
-		P3 = P3h*COP2_design/COP1
-		Pe = heatLoad+cpm_h / dt * (Tsaim - Tsstart) - (P3 + P1Only)*COP1
+		#如果没有供热要求，那么真实的COP是按照蓄热温度计算的
+		COPThis = P1hOnly == 0 ? COP2((Tsaim+Tsstart)/2+dT_EvaporationStandard, TCompressorIn) : COP1 
+
+		P3 = P3h*COP2_design/COPThis
+		Pe = heatLoad+cpm_h / dt * (Tsaim - Tsstart) - (P3 + P1Only)*COPThis
 		
 		#P3l = P3 - P3h
 		if (Pe <= PelecHeatMax) #&& (P3h<=PWaterCompressorMax) #&& (P3l <= PheatPumpLowMax)
@@ -155,6 +159,7 @@ function getStateTransitionCost_SingleStep(
 
 		# 模式2：热泵也给蓄热储热（此时热泵COP按照蓄热温度计算）
 		function mode2(Tsaim2, Tsstart2, dt2)
+			#该模式下，无热泵储热的温度与原模式相同
 			# 如果水蒸气压缩机容量没有富余的话，应该优先用热泵为工厂供热，而不是为蓄热罐储热
 			Psin=cpm_h / dt2 * (Tsaim2 - Tsstart2)#蓄热储热功率
 			P3hin=min(Psin/COPWatervalue,PWaterCompressorMax)
@@ -404,7 +409,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 ) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
 	tList = 0:dt:24
 
-	dT_origin=4.0
+	dT_origin=1
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax,1,length(tList))
 	

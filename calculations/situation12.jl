@@ -28,8 +28,16 @@ function main()
 		fill(26.0,11)
 	)
 
-	heatConsumptionPower = fill(1.0, 25)
-
+	heatConsumptionPower = fill(1.0,48)
+	#=
+	heatConsumptionPower = vcat(
+		fill(0.0,16),
+		fill(1.0, 8),
+		fill(0.0,2),
+		fill(1.0,8),
+		fill(0.0,14)
+	)
+	=#
 	# 系数
 	heatPumpServiceCoff = 1.0
 	maxCOP = 21# 最大COP
@@ -151,6 +159,7 @@ function main()
 			无储能的曲线计算时需要修改电加热逻辑
 			=#
 			temp = PLowMAX+PHighMAX
+			hf=generateGridPriceFunction(hourlyTariff, 24)
 			push!(dfEconomic,[
 				workingHours,
 				0.0,
@@ -158,8 +167,8 @@ function main()
 				PLowMAX,
 				PHighMAX,
 				0.0,
-				temp*sum(hourlyTariff)*dt,
-				temp*(nt-1)*dt
+				sum(temp.*hf.(0:dt:(24-dt)).*heatConsumptionPower)*dt,
+				temp*sum(heatConsumptionPower)*dt
 			])
 
 			for heatStorageCapacity in heatStorageCapacityList
@@ -267,6 +276,8 @@ function main()
 						COPWaterList[i] = COPWater(TCompressorIn, Tuse)
 					elseif P1ListGo[i] > 0 && P3ListGo[i] > 0
 						COPWaterList[i] = COPWater(TCompressorIn, max((minTsListGo[i+1]+minTsListGo[i+1])/2 + dT_EvaporationStandard, Tuse))
+					elseif P1ListGo[i] == 0 && P3ListGo[i] > 0
+						COPWaterList[i] = COPWater(TCompressorIn, (minTsListGo[i+1]+minTsListGo[i+1])/2 + dT_EvaporationStandard)
 					else
 						COPWaterList[i] = 1.0
 					end
@@ -288,7 +299,6 @@ function main()
 				dfOperation[!, :热泵储热供热功率] = P3ListGo
 				dfOperation[!, :电加热储热供热功率] = PeListGo
 
-
 				dfOperation[!, :低温热泵COP] = COPLowList
 				dfOperation[!, :水蒸气压缩机COP] = COPWaterList
 				dfOperation[!, :复叠COP] = COPOverlaplist
@@ -296,14 +306,20 @@ function main()
 				dfOperation[!, :低温热泵功率] = PLowList
 				dfOperation[!, :水蒸气压缩机功率] = PHighList
 
+				dfOperation[!, :蓄热储入功率反馈] = (minTsListGo[2:end]-minTsListGo[1:end-1])*cpm_h*dt
+
+				dfOperation[!, :蓄热储入功率计算] = P3ListGo.*COPOverlaplist+PeListGo
+
 				PLowMAX=maximum(PLowList)
 				PHighMAX=maximum(PHighList)
 				temp = PLowMAX+PHighMAX
+
 				# if temp <1
 				# 	PLowMAX /= temp
 				# 	PHighMAX /= temp
 				# end
 				#[:工作时长, :蓄热时长, :承压水体积, :低温热泵总功率, :高温热泵总功率, :电加热功率, :每天运行费用, :总电度]
+
 				push!(dfEconomic, [
 					workingHours,
 					heatStorageCapacity,
@@ -314,8 +330,11 @@ function main()
 					minCostGo,
 					sum(PLowList + PHighList + PeListGo) * dt,
 				])
+
 				CSV.write(joinpath(filePathTuse, string(Tuse) * "_" * string(heatStorageCapacity) * ".csv"), round.(dfOperation,digits=5))
+				
 				count+=1
+
 				println(count,"/",totalCalculationTime," ","Tuse=",Tuse,", heatStorageCapacity=",heatStorageCapacity)
 			end
 			
