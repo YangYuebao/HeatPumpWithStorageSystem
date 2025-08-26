@@ -28,8 +28,8 @@ function main()
 		fill(26.0,11)
 	)
 
-	heatConsumptionPower = fill(1.0,48)
-	#=
+	#heatConsumptionPower = fill(1.0,48)
+	
 	heatConsumptionPower = vcat(
 		fill(0.0,16),
 		fill(1.0, 8),
@@ -37,7 +37,7 @@ function main()
 		fill(1.0,8),
 		fill(0.0,14)
 	)
-	=#
+	
 	# 系数
 	heatPumpServiceCoff = 1.0
 	maxCOP = 21# 最大COP
