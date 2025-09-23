@@ -25,7 +25,7 @@ function getStateTransitionCost_SingleStep(
 	Tsmin::Real = 120.0 ,# 蓄热的最小温度
 	Tsmax::Real = 220.0
 )
-	#heatLoadPumpMax = PWaterCompressorMax * COP2_design# 热泵设计的供热功率
+	heatLoadPumpMax = PWaterCompressorMax * COP2_design# 热泵设计的供热功率
 
 	nT = length(TsListStart)# 温度步数
 
@@ -44,40 +44,16 @@ function getStateTransitionCost_SingleStep(
 
 
 	for (j, Tsaim) in enumerate(TsListEnd)
-		#println(j,"/",length(TsListEnd))
-		midIndex = findfirst(x -> x >= Tsaim, TsListStart)
-		# 大于midIndex的是温度不增部分，小于midIndex的是温度下降部分
-		if isnothing(midIndex)
-			midIndex = length(TsListStart)+1
-		end
-
-		# 温度不增部分，出现不可行解时跳过
-		for i=midIndex:length(TsListStart)
-			Tsstart=TsListStart[i]
+		for (i, Tsstart) in enumerate(TsListStart)
+			# 先计算温度下降的功率,存在一边电加热一边开2号模式的情况
 			if Tsstart < Tsmin || Tsaim > Tsmax
 				C[i, j] = 9999.0
 				P1Matrix[i, j] = 9999.0
 				P3Matrix[i, j] = 9999.0
 				PeMatrix[i, j] = 9999.0
-				continue
-			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params)
-			if !flag
-				break
-			end
-		end
-		for i = midIndex-1:-1:1
-			Tsstart=TsListStart[i]
-			if Tsstart < Tsmin || Tsaim > Tsmax
-				C[i, j] = 9999.0
-				P1Matrix[i, j] = 9999.0
-				P3Matrix[i, j] = 9999.0
-				PeMatrix[i, j] = 9999.0
-				continue
-			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params)
-			if !flag
-				break
+			else
+				C[i,j],_,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params)
+			#elseif Tsaim == Tsstart
 			end
 		end
 	end
@@ -108,7 +84,6 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 	PelecHeatMax::Real,# 电锅炉最大功率
 	PWaterCompressorMax::Real,#水蒸气压缩机最大功率
 	Tsmin::Real,#最低蓄热温度
-	Tsmax::Real,# 最高蓄热温度
 
 	# 求解参数
 	TsListStart::Matrix,# 状态参数高温蓄热温度起始值列表
@@ -126,7 +101,6 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 	PeMatrix = zeros(nt, nT, nT)
 
 	for i ∈ 1:nt
-		println(i,"/",nt)
 		params=SystemParameters(
 			ThMax = TcChangeToElec,
 			Tuse = Tuse,
@@ -142,7 +116,7 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 			TWaste = TWaste
 		)
 		# 计算每个时段内的状态转移矩阵
-		@time C_singlestep, P1Matrix[i, :, :], P2Matrix[i, :, :], P3Matrix[i, :, :], PeMatrix[i, :, :] = getStateTransitionCost_SingleStep(
+		C_singlestep, P1Matrix[i, :, :], P2Matrix[i, :, :], P3Matrix[i, :, :], PeMatrix[i, :, :] = getStateTransitionCost_SingleStep(
 			PressedWaterOneStorageOneCompressor();
 			#=
 			COPOverlap::Function,
@@ -160,7 +134,7 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 			Tsmax::Real = 220.0
 			=#
 			COPOverlap=COPOverlap,
-			Tair=Tair[i],
+			Tair=Tair,
 			latentHeat=latentHeat,
 			cp_cw=cp_cw,
 			TsListStart = TsListStart[:, i],
@@ -245,14 +219,13 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		PelecHeatMax = PelecHeatMax,# 电锅炉最大功率
 		PWaterCompressorMax = PWaterCompressorMax,#水蒸气压缩机最大功率
 		Tsmin = Tsmin,# 最低蓄热温度
-		Tsmax = TstorageTankMax,
 		# 求解参数
 		TsListStart = TsMatrix[:, 1:end-1], # 状态参数高温蓄热温度列表
 		TsListEnd = TsMatrix[:, 2:end], # 状态参数高温蓄热温度列表
 		dt = dt, # 时间步长
 		smoother = smoother,
 	)
-	
+	#=
 	for i ∈ 1:nt-1
 		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看C", "C_$(i).csv"), DataFrame(C[i, :, :], :auto))
 		#println("看看C", "C_$(i).csv")
@@ -273,7 +246,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看Pe", "Pe_$(i).csv"), DataFrame(PeMatrix[i, :, :], :auto))
 		#println("看看Pe", "Pe_$(i).csv")
 	end
-	
+	=#
 	## 动态规划求解
 	cost, TsIndex = GoldenRatioSolver(nT, nt, C)
 	TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)

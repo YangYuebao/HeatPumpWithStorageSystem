@@ -161,11 +161,13 @@ function generateSystemCoff(::T;
 	PWaterCompressorMax
 end
 
+# 导入底层建模与求解器
+include(joinpath(pwd(),"src","systemModels","HSOneStorageOneCompressor","BaseOptimize.jl"))
+
 # 导入定需求定环境的代码
 include(joinpath(pwd(),"src","systemModels","HSOneStorageOneCompressor","ConstantLoadConstantArea.jl"))
 
 # 导入变需求变环境的代码
 include(joinpath(pwd(),"src","systemModels","HSOneStorageOneCompressor","VaryLoadVaryArea.jl"))
-
 
 

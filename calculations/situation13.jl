@@ -68,7 +68,7 @@ function main()
 	heatStorageCapacityList = 8.0:1.0:8.0
 	# 用热温度的计算列表
 	TuseList = 150.0:10.0:150.0
-0
+
 	# 总算例数
 	totalCalculationTime=length(overlapRefrigerantList)*length(heatStorageCapacityList)*length(TuseList)
 
@@ -209,7 +209,7 @@ function main()
 				P2ListGo=[]
 				P3ListGo=[]
 				PeListGo=[]
-				for i=1:5
+				for i=1:1
 					minCostGotemp, minTsListGotemp, P1ListGotemp, P2ListGotemp, P3ListGotemp, PeListGotemp = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
 						COPOverlap = COPOverlap,
 						COPWater = COPWater,

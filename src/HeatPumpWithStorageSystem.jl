@@ -82,4 +82,8 @@ export NoSimplify,ConstloadandArea,VaryLoadVaryArea
 # 求解单压缩机系统的优化方法
 export ExhaustiveMethod,GoldenRatioMethod,MomentumMethod
 
+# 混合整数线性规划导出系统参数结构体
+export SystemParameters
+export getMinimumCost	#导出混合整数线性规划求解函数
+
 end # module HeatPumpWithStorageSystem

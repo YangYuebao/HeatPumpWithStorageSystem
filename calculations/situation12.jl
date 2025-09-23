@@ -38,8 +38,17 @@ function main()
 		fill(0.0,14)
 	)
 	
+	heatConsumptionPower = vcat(
+		fill(0.0,8),
+		fill(1.0, 4),
+		fill(0.0,1),
+		fill(1.0,4),
+		fill(0.0,7)
+	)
+		
+	
 	# 系数
-	heatPumpServiceCoff = 1.0
+	heatPumpServiceCoff = 0.0
 	maxCOP = 21# 最大COP
 	eta_s = 0.7# 绝热效率
 	workingStartHour = 0                # 生产开始时间
@@ -53,7 +62,9 @@ function main()
 
 	# 计算参数
 	dT = 1e-3
-	dt = 1/2# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
+	#dt = 1/2# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
+
+	dt = 1.0
 	smoother=1e-8
 
 	nt=24/dt+1
@@ -65,9 +76,11 @@ function main()
 	]
 	
 	# 热容的计算列表
-	heatStorageCapacityList = 1.0:1.0:10.0
+	#heatStorageCapacityList = 1.0:1.0:10.0
+	heatStorageCapacityList = 8.0:1.0:8.0
 	# 用热温度的计算列表
-	TuseList = 130.0:10.0:180.0
+	#TuseList = 130.0:10.0:180.0
+	TuseList = 150.0:10.0:150.0
 
 	# 总算例数
 	totalCalculationTime=length(overlapRefrigerantList)*length(heatStorageCapacityList)*length(TuseList)
