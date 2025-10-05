@@ -123,9 +123,9 @@ function getMinimumCost(TsStart,TsEnd,dt,params)
     flag = isFeasible in [FEASIBLE_POINT,NEARLY_FEASIBLE_POINT]
 
     if !flag
-        println("求解失败,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
-        return 9999.0,flag,9999.0,9999.0,9999.0,9999.0
+        println("求解失败,$isFeasible,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
+        return COPl,coph1,coph2,coph3,coph4,9999.0,flag,9999.0,9999.0,9999.0,9999.0
     end
 
-    return objective_value(model),flag , value(P[1])*coph1/COPl, value(P[2]), value(P[3])*coph3/COPl,value(Pe[1]+Pe[2])
+    return COPl,coph1,coph2,coph3,coph4,objective_value(model)*dt,flag , value(P[1])*coph1/COPl, value(P[2]), value(P[3])*coph3/COPl,value(Pe[1]+Pe[2]),COPl
 end

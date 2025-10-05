@@ -77,3 +77,7 @@ TsEnd=130.0
 dt=0.5
 
 @time getMinimumCost(TsStart,TsEnd,dt,params)
+"""
+COPl,coph1,coph2,coph3,coph4,
+"""
+result=[getMinimumCost(TsStart,TsEnd,dt,params)...]
