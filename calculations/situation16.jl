@@ -8,7 +8,7 @@ using DataFrames, CSV
 =#
 
 function main()
-	situation = "situation12"
+	situation = "situation16"
 	hourlyTariff = ones(48)*0.7393
 	p=1.7
 	pp=p*1.2
@@ -22,28 +22,11 @@ function main()
 	hourlyTariff[40:43] .*= pp
 	hourlyTariff[44] *= p
 
+
 	Tair = vcat(
 		fill(26.0, 7),
 		fill(27.0, 7),
 		fill(26.0,11)
-	)
-
-	#heatConsumptionPower = fill(1.0,48)
-	
-	heatConsumptionPower = vcat(
-		fill(0.0,16),
-		fill(1.0, 8),
-		fill(0.0,2),
-		fill(1.0,8),
-		fill(0.0,14)
-	)
-	
-	heatConsumptionPower = vcat(
-		fill(0.0,8),
-		fill(1.0, 4),
-		fill(0.0,1),
-		fill(1.0,4),
-		fill(0.0,7)
 	)
 	
 	heatConsumptionPower = vcat(
@@ -313,9 +296,9 @@ function main()
 				COPWaterList = fill(COPOverlap(TWaste, Tuse), nt)
 				for i ∈ 1:nt
 					if P2ListGo[i] > 0
-						COPWaterList[i] = COPWater(P2ListGo[i] - dT_, TusEvaporationStandard, Tuse)
+						COPWaterList[i] = COPWater(P2ListGo[i] - dT_EvaporationStandard, Tuse)
 					elseif P1ListGo[i] > 0 && P3ListGo[i] == 0
-						COPWaterList[i] = COPWater(TCompressorIne)
+						COPWaterList[i] = COPWater(TCompressorIn, Tuse)
 					elseif P1ListGo[i] > 0 && P3ListGo[i] > 0
 						COPWaterList[i] = COPWater(TCompressorIn, max((minTsListGo[i+1]+minTsListGo[i+1])/2 + dT_EvaporationStandard, Tuse))
 					elseif P1ListGo[i] == 0 && P3ListGo[i] > 0
@@ -389,12 +372,3 @@ function main()
 		CSV.write(joinpath(filePathOr, "summary.csv"), round.(dfCost,digits=5))
 	end
 end
-#2小时20分钟
-# 2025年3月17日3时开始计算
-@info "开始计算"
-@time main()
-#=
-实现变环境变需求
-实现平滑功率
-实现分级计算
-=#

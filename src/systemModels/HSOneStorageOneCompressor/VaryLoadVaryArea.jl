@@ -142,7 +142,7 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 			TWaste = TWaste
 		)
 		# 计算每个时段内的状态转移矩阵
-		@time C_singlestep, P1Matrix[i, :, :], P2Matrix[i, :, :], P3Matrix[i, :, :], PeMatrix[i, :, :] = getStateTransitionCost_SingleStep(
+		C_singlestep, P1Matrix[i, :, :], P2Matrix[i, :, :], P3Matrix[i, :, :], PeMatrix[i, :, :] = getStateTransitionCost_SingleStep(
 			PressedWaterOneStorageOneCompressor();
 			#=
 			COPOverlap::Function,
@@ -208,7 +208,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 ) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
 	tList = 0:dt:24
 
-	dT_origin = 1
+	dT_origin = 10
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax, 1, length(tList))
 
@@ -252,7 +252,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		dt = dt, # 时间步长
 		smoother = smoother,
 	)
-	
+	#=
 	for i ∈ 1:nt-1
 		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看C", "C_$(i).csv"), DataFrame(C[i, :, :], :auto))
 		#println("看看C", "C_$(i).csv")
@@ -273,7 +273,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看Pe", "Pe_$(i).csv"), DataFrame(PeMatrix[i, :, :], :auto))
 		#println("看看Pe", "Pe_$(i).csv")
 	end
-	
+	=#
 	## 动态规划求解
 	cost, TsIndex = GoldenRatioSolver(nT, nt, C)
 	TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
@@ -375,7 +375,7 @@ end
 """
 function dpSolve(::VaryLoadVaryArea;
 	C::Array{Float64, 3},
-	j::Int,
+	j::Int,# The index of start temperature
 )
 	nT = size(C, 2)
 	nt = size(C, 1)
