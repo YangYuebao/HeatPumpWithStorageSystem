@@ -255,6 +255,7 @@ function main()
 					minCostGotemp, minTsListGotemp, P1ListGotemp, P2ListGotemp, P3ListGotemp, PeListGotemp = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
 						COPOverlap = COPOverlap,
 						COPWater = COPWater,
+						COPLowFunction=COPLowFunction,
 						hourlyTariffFunction = hourlyTariffFunction,
 						heatConsumptionPowerFunction = heatConsumptionPowerFunction,
 						TairFunction = TairFunction,

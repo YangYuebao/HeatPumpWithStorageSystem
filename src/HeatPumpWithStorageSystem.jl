@@ -71,7 +71,7 @@ export R134a_Water,NH3_Water,R1233zdE_Water
 export getCOPFunction
 
 # 古老的计算程序
-export generateSystemCoff, generateAndSolve
+export generateSystemCoff, generateAndSolve,getStateTransitionCost,getStateTransitionCost_SingleStep
 
 # 根据向量生成函数，用于生成价格函数，负载函数，区域温度函数
 export generateGridPriceFunction,generateLoadFunction,generateAreaTemperatureFunction
@@ -81,9 +81,12 @@ export NoSimplify,ConstloadandArea,VaryLoadVaryArea
 
 # 求解单压缩机系统的优化方法
 export ExhaustiveMethod,GoldenRatioMethod,MomentumMethod
+export GoldenRatioSolver
 
+
+# 定义宏用于展开结构体字段
+export @unpackParameters
 # 混合整数线性规划导出系统参数结构体
 export SystemParameters
-export getMinimumCost	#导出混合整数线性规划求解函数
-
+export getMinimumCost,getMinimumCost_MILP	#导出
 end # module HeatPumpWithStorageSystem

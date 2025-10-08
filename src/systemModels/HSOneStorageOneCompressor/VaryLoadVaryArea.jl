@@ -21,6 +21,7 @@ function getStateTransitionCost_SingleStep(
 	TsListStart::Vector,# 状态参数高温蓄热温度起始值列表
 	TsListEnd::Vector,# 状态参数高温蓄热温度结束值列表
 	params::SystemParameters,
+	sysVariables::SystemVariables,
 	dt::Real = 1.0,# 时间步长
 	Tsmin::Real = 120.0 ,# 蓄热的最小温度
 	Tsmax::Real = 220.0
@@ -61,7 +62,7 @@ function getStateTransitionCost_SingleStep(
 				PeMatrix[i, j] = 9999.0
 				continue
 			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params)
+			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost_MILP(Tsstart,Tsaim,dt,params,sysVariables)
 			if !flag
 				break
 			end
@@ -75,7 +76,7 @@ function getStateTransitionCost_SingleStep(
 				PeMatrix[i, j] = 9999.0
 				continue
 			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params)
+			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost_MILP(Tsstart,Tsaim,dt,params,sysVariables)
 			if !flag
 				break
 			end
@@ -88,6 +89,7 @@ include(joinpath(pwd(), "src", "systemModels", "HSOneStorageOneCompressor", "OOT
 function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 	COPOverlap::Function,
 	COPWater::Function,
+	COPLowFunction::Function,
 	heatLoad::Vector,#热负荷
 	Tair::Vector,# 外部环境温度
 	costGrid::Vector,# 电网电价
@@ -125,40 +127,27 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 	P3Matrix = zeros(nt, nT, nT)
 	PeMatrix = zeros(nt, nT, nT)
 
+	params=SystemParameters(
+		ThMax = TcChangeToElec,
+		Tuse = Tuse,
+		dT=dT_EvaporationStandard,
+		TCompressorIn = TCompressorIn,
+		cpm=cpm_h,
+		COPWater = COPWater,
+		PhMax=PheatPumpMax,
+		PeMax=PelecHeatMax,
+	)
 	for i ∈ 1:nt
 		println(i,"/",nt)
-		params=SystemParameters(
-			ThMax = TcChangeToElec,
-			Tuse = Tuse,
-			load = heatLoad[i],
-			dT=dT_EvaporationStandard,
-			TCompressorIn = TCompressorIn,
-			cpm=cpm_h,
-			COPWater = COPWater,
-			COPl = COPOverlap(TWaste,Tuse),
-			PhMax=PheatPumpMax,
-			PeMax=PelecHeatMax,
-			Tair = Tair[i],
-			TWaste = TWaste
+		sysVariables = SystemVariables(
+			heatLoad[i],
+			COPLowFunction(TWaste,TCompressorIn+dT_EvaporationStandard),
+			Tair[i],
+    		TWaste
 		)
 		# 计算每个时段内的状态转移矩阵
 		C_singlestep, P1Matrix[i, :, :], P2Matrix[i, :, :], P3Matrix[i, :, :], PeMatrix[i, :, :] = getStateTransitionCost_SingleStep(
 			PressedWaterOneStorageOneCompressor();
-			#=
-			COPOverlap::Function,
-			Tair::Real,# 外部环境温度
-			# 总循环参数
-			latentHeat::Real,# 汽化潜热
-			cp_cw::Real,# 循环水定压热容	
-
-			# 求解参数
-			TsListStart::Vector,# 状态参数高温蓄热温度起始值列表
-			TsListEnd::Vector,# 状态参数高温蓄热温度结束值列表
-			params::SystemParameters,
-			dt::Real = 1.0,# 时间步长
-			Tsmin::Real = 120.0 ,# 蓄热的最小温度
-			Tsmax::Real = 220.0
-			=#
 			COPOverlap=COPOverlap,
 			Tair=Tair[i],
 			latentHeat=latentHeat,
@@ -166,6 +155,7 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 			TsListStart = TsListStart[:, i],
 			TsListEnd = TsListEnd[:, i],
 			params=params,
+			sysVariables=sysVariables,
 			dt=dt,
 			Tsmin=Tsmin,
 			Tsmax=Tsmax			
@@ -179,6 +169,7 @@ end
 function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatioMethod;
 	COPOverlap::Function,
 	COPWater::Function,
+	COPLowFunction::Function,
 	hourlyTariffFunction::Function,   # 电价函数
 	heatConsumptionPowerFunction::Function,  # 用热负载函数
 	TairFunction::Function,# 环境温度函数
@@ -208,7 +199,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 ) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
 	tList = 0:dt:24
 
-	dT_origin = 10
+	dT_origin = 5.0
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax, 1, length(tList))
 
@@ -227,6 +218,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		VaryLoadVaryArea();
 		COPOverlap = COPOverlap,
 		COPWater = COPWater,
+		COPLowFunction=COPLowFunction,
 		heatLoad = heatLoadList,# 热负荷
 		Tair = TairList,# 外部环境温度
 		costGrid = costGridList,# 电网电价
@@ -364,10 +356,10 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	P2List = map(i -> P2Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	P3List = map(i -> P3Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	PeList = map(i -> PeMatrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
+	realCostList = map(i -> C[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
+	realCostList .-= smoother * (sum(abs2.(P1List)) + sum(abs2.(P2List)) + sum(abs2.(P3List)) + sum(abs2.(PeList)))
 
-	realCost = cost - smoother * (sum(abs2.(P1List)) + sum(abs2.(P2List)) + sum(abs2.(P3List)) + sum(abs2.(PeList)))
-
-	return cost, TsList, P1List, P2List, P3List, PeList
+	return cost, TsList, P1List, P2List, P3List, PeList,realCostList
 end
 
 """

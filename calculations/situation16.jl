@@ -29,11 +29,20 @@ function main()
 		fill(26.0,11)
 	)
 	
+	#=
 	heatConsumptionPower = vcat(
 		fill(0.0,4),
 		fill(1.0, 2),
 		fill(1.0,2),
 		fill(0.0,4)
+	)
+	=#
+	heatConsumptionPower = vcat(
+		fill(0.0,16),
+		fill(1.0, 8),
+		fill(0.0,2),
+		fill(1.0,8),
+		fill(0.0,14)
 	)
 	
 	# 系数
@@ -53,7 +62,7 @@ function main()
 	dT = 1e-3
 	#dt = 1/2# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 
-	dt = 2.0
+	dt = 0.5
 	smoother=1e-8
 
 	nt=24/dt+1
@@ -234,10 +243,12 @@ function main()
 				P2ListGo=[]
 				P3ListGo=[]
 				PeListGo=[]
+				realCostListGo=[]
 				for i=1:1
-					minCostGotemp, minTsListGotemp, P1ListGotemp, P2ListGotemp, P3ListGotemp, PeListGotemp = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
+					minCostGotemp, minTsListGotemp, P1ListGotemp, P2ListGotemp, P3ListGotemp, PeListGotemp,realCostListtemp = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
 						COPOverlap = COPOverlap,
 						COPWater = COPWater,
+						COPLowFunction=COPLowFunction,
 						hourlyTariffFunction = hourlyTariffFunction,
 						heatConsumptionPowerFunction = heatConsumptionPowerFunction,
 						TairFunction = TairFunction,
@@ -269,6 +280,7 @@ function main()
 						P2ListGo=P2ListGotemp
 						P3ListGo=P3ListGotemp
 						PeListGo=PeListGotemp
+						realCostListGo = realCostListtemp
 					end
 				end
 
@@ -372,3 +384,6 @@ function main()
 		CSV.write(joinpath(filePathOr, "summary.csv"), round.(dfCost,digits=5))
 	end
 end
+
+@info "开始计算"
+@time main()
