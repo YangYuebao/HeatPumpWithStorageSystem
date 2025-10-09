@@ -1,3 +1,5 @@
+begin
+
 using Revise
 using Pkg
 using HeatPumpWithStorageSystem
@@ -77,7 +79,7 @@ or = NH3_Water
 
 # 热容的计算列表
 #heatStorageCapacityList = 1.0:1.0:10.0
-heatStorageCapacity = 8.0
+heatStorageCapacity = 0.0
 # 用热温度的计算列表
 Tuse = 150.0
 
@@ -201,7 +203,7 @@ push!(dfEconomic, [
 	PLowMAX,
 	PHighMAX,
 	0.0,
-	sum(temp .* hf.(0:dt:(24-dt)) .* heatConsumptionPowerFunction.(0:dt:(24-dt))) * dt,
+	sum(temp .* hf.(0:dt:(24-dt)) .* hf.(0:dt:(24-dt))) * dt,
 	temp * sum(heatConsumptionPower) * dt,
 ])
 
@@ -210,7 +212,7 @@ dfOperation = DataFrame()# 运行参数
 COP1_design = COPOverlap(TWaste, Tuse)
 COPWater_design = COPWater(TCompressorIn, Tuse)
 # 生成计算参数
-hourlyTariffFunction, heatConsumptionPowerFunction, TairFunction,
+hourlyTariffFunction, hf, TairFunction,
 Tuse, TCompressorIn,
 dT_EvaporationStandard,
 latentHeat, cp_cw, cp_cs,
@@ -256,7 +258,7 @@ nT = size(TsMatrix, 1)# 温度步数
 nt = length(tList)# 时间步数
 bestValueList = fill(99.0, nT)
 
-heatLoadList = heatConsumptionPowerFunction.(tList)
+heatLoadList = hf.(tList)
 TairList = TairFunction.(tList)
 costGridList = hourlyTariffFunction.(tList)
 
@@ -317,13 +319,66 @@ P2ListGo = P2List
 P3ListGo = P3List
 PeListGo = PeList
 realCostListGo = realCostList
+end
+
+df_test=DataFrame([minTsListGo[1:end-1] P1ListGo P2ListGo P3ListGo PeListGo realCostListGo],:auto)
+
 
 # 验证结果是否满足能量守恒
+params=SystemParameters(
+	ThMax = TcChangeToElec,
+	Tuse = Tuse,
+	dT=dT_EvaporationStandard,
+	TCompressorIn = TCompressorIn,
+	cpm=cpm_h,
+	COPWater = COPWater,
+	PhMax=PheatPumpMax,
+	PeMax=PelecHeatMax,
+)
+
+
+
+for i=1:nt-1
+	sysVariables = HeatPumpWithStorageSystem.SystemVariables(
+		heatLoadList[i],
+		COPLowFunction(TWaste,TCompressorIn+dT_EvaporationStandard),
+		TairList[i],
+		TWaste
+	)
+	cost_test,flag_test,P1_test,P2_test,P3_test,Pe_test=getMinimumCost(minTsListGo[i],minTsListGo[i+1],dt,params,sysVariables)
+	begin
+		if !flag_test
+			println("第$(i)个时间段有误")
+		end
+		if cost_test*costGridList[i]-realCostListGo[i] > 1e-5
+			println("第$(i)个时间段的成本有误")
+		end
+		if P1_test-P1ListGo[i] > 1e-5
+			println("第$(i)个时间段P1ListGo[i]和P1_test有误")
+		end
+		if P2_test-P2ListGo[i] > 1e-5
+			println("第$(i)个时间段P2ListGo[i]和P2_test有误")
+		end
+		if P3_test-P3ListGo[i] > 1e-5
+			println("第$(i)个时间段P3ListGo[i]和P3_test有误")
+		end
+		if Pe_test-PeListGo[i] > 1e-5
+			println("第$(i)个时间段PeListGo[i]和Pe_test有误")
+		end
+		println("$i/$(nt)")
+	end
+end
+
+x1List = P1ListGo.>0 .|> Int
+x2List = P2ListGo.>0 .|> Int
+x3List = P3ListGo.>0 .|> Int
 
 
 storageTankMass = cpm_h / cp_cw * 3600#kg	蓄热水质量
 storageTankVolume = storageTankMass / 900#m^3 蓄热罐体积
 tList = collect(0:dt:(24-dt).+0.5*dt)
+
+# 这里nt的数值变了
 nt = length(tList)
 
 COPLowList = fill(1.0, nt)
@@ -333,42 +388,53 @@ for i ∈ 1:nt
 	end
 end
 
-COPOverlaplist = fill(COPOverlap(TWaste, Tuse), nt)
+#=这是用整数规划求解器做的，目前整数规划求解器有问题
+COPh1List = fill(COPWater(TCompressorIn,Tuse),nt)
+COPh2List = [COPWater(Ts-dT_EvaporationStandard,Tuse) for Ts in minTsListGo[1:nt]]
+COPh3List = [COPWater(TCompressorIn, Ts+dT_EvaporationStandard) for Ts in minTsListGo[1:nt]]
+
+minCOP1COP3 = min.(COPh1List, COPh3List)
+=#
+COPh1List = zeros(nt)
+COPh2List = zeros(nt)
+COPh3List = zeros(nt)
+COPOverlapList = zeros(nt)
 for i ∈ 1:nt
-	if P2ListGo[i] > 0
-		COPOverlaplist[i] = COPWater((minTsListGo[i+1] + minTsListGo[i+1]) / 2 - dT_EvaporationStandard, Tuse)
-	elseif P3ListGo[i] > 0
-		COPOverlaplist[i] = COPOverlap(TWaste, max((minTsListGo[i+1] + minTsListGo[i+1]) / 2 + dT_EvaporationStandard, Tuse))
-	end
+	sysVariables = HeatPumpWithStorageSystem.SystemVariables(
+		heatLoadList[i],
+		COPLowFunction(TWaste,TCompressorIn+dT_EvaporationStandard),
+		TairList[i],
+		TWaste
+	)
+	_,COPh1List[i],COPh2List[i],COPh3List[i],COPOverlapList[i]=getCOPbyMode(x1List[i],x2List[i],x3List[i],minTsListGo[i], minTsListGo[i+1], params, sysVariables)
 end
-
-COPWaterList = fill(COPOverlap(TWaste, Tuse), nt)
-for i ∈ 1:nt
-	if P2ListGo[i] > 0
-		COPWaterList[i] = COPWater(P2ListGo[i] - dT_EvaporationStandard, Tuse)
-	elseif P1ListGo[i] > 0 && P3ListGo[i] == 0
-		COPWaterList[i] = COPWater(TCompressorIn, Tuse)
-	elseif P1ListGo[i] > 0 && P3ListGo[i] > 0
-		COPWaterList[i] = COPWater(TCompressorIn, max((minTsListGo[i+1] + minTsListGo[i+1]) / 2 + dT_EvaporationStandard, Tuse))
-	elseif P1ListGo[i] == 0 && P3ListGo[i] > 0
-		COPWaterList[i] = COPWater(TCompressorIn, (minTsListGo[i+1] + minTsListGo[i+1]) / 2 + dT_EvaporationStandard)
-	else
-		COPWaterList[i] = 1.0
-	end
-end
-
-
 
 #println(length(P1ListGo)," ",length(COPWaterList)," ",nt)
-PLowList = (P1ListGo + P3ListGo) .* (COPWaterList .- 1) ./ (COPLowList + COPWaterList .- 1)
-PHighList = P1ListGo + P2ListGo + P3ListGo - PLowList
+PHighList = zeros(nt)
+PLowList = zeros(nt)
+PPumpList = zeros(nt)
+for i=1:nt
+	# 先算模式1和3的高温热泵功率
+	PHighList[i] = P1ListGo[i] * COPOverlapList[i] / COPh1List[i] + P3ListGo[i] * COPOverlapList[i] / COPh3List[i]
+
+	# 低温热泵功率只有1，3开启了
+	PLowList[i] = P1ListGo[i]+P3ListGo[i]-PHighList[i]
+
+	# 如果同时开启蓄热供热与热泵直接供热，P2不用往里加
+	if x2List[i] == 1 && x1List[i] == 0
+		PHighList[i] += P2ListGo[i]
+	else
+		PPumpList[i] = P2ListGo[i]
+	end
+end
 
 dfOperation[!, :时间] = tList
+dfOperation[!, :电价] = costGridList[1:nt]
 
 dfOperation[!, :环境温度] = TairFunction.(tList)
 dfOperation[!, :蒸发器温度] = fill(TWaste, nt)
 dfOperation[!, :用热温度] = fill(Tuse, nt)
-dfOperation[!, :用热负载] = heatConsumptionPowerFunction.(tList)
+dfOperation[!, :用热负载] = hf.(tList)
 dfOperation[!, :蓄热温度] = minTsListGo[1:end-1]
 
 dfOperation[!, :热泵直接供热功率] = P1ListGo
@@ -377,15 +443,22 @@ dfOperation[!, :热泵储热供热功率] = P3ListGo
 dfOperation[!, :电加热储热供热功率] = PeListGo
 
 dfOperation[!, :低温热泵COP] = COPLowList
-dfOperation[!, :水蒸气压缩机COP] = COPWaterList
-dfOperation[!, :复叠COP] = COPOverlaplist
+dfOperation[!, :COPh1] = COPh1List
+dfOperation[!, :COPh2] = COPh2List
+dfOperation[!, :COPh3] = COPh3List
+dfOperation[!, :复叠COP] = COPOverlapList
 
 dfOperation[!, :低温热泵功率] = PLowList
 dfOperation[!, :水蒸气压缩机功率] = PHighList
+dfOperation[!, :水泵功率] = PPumpList
 
-dfOperation[!, :蓄热储入功率反馈] = (minTsListGo[2:end] - minTsListGo[1:end-1]) * cpm_h * dt
+PLowList+PHighList+PPumpList-P1ListGo-P3ListGo-P2ListGo
 
-dfOperation[!, :蓄热储入功率计算] = P3ListGo .* COPOverlaplist + PeListGo
+dfOperation[!, :蓄热储入功率反馈] = (minTsListGo[2:end] - minTsListGo[1:end-1]) * cpm_h / dt
+
+dfOperation[!, :蓄热储入功率计算] = P3ListGo .* COPOverlapList + PeListGo - (P2ListGo+PPumpList) .* (COPh2List.-1)
+
+dfOperation[!, :蓄热储入功率反馈误差] = dfOperation[!, :蓄热储入功率反馈]-dfOperation[!, :蓄热储入功率计算]
 
 PLowMAX = maximum(PLowList)
 PHighMAX = maximum(PHighList)

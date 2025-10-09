@@ -87,6 +87,7 @@ export GoldenRatioSolver
 # 定义宏用于展开结构体字段
 export @unpackParameters
 # 混合整数线性规划导出系统参数结构体
-export SystemParameters
+export SystemParameters,SystemVariables
 export getMinimumCost,getMinimumCost_MILP	#导出
+export getCOPbyMode
 end # module HeatPumpWithStorageSystem

@@ -62,7 +62,7 @@ function getStateTransitionCost_SingleStep(
 				PeMatrix[i, j] = 9999.0
 				continue
 			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost_MILP(Tsstart,Tsaim,dt,params,sysVariables)
+			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params,sysVariables)
 			if !flag
 				break
 			end
@@ -76,7 +76,7 @@ function getStateTransitionCost_SingleStep(
 				PeMatrix[i, j] = 9999.0
 				continue
 			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost_MILP(Tsstart,Tsaim,dt,params,sysVariables)
+			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params,sysVariables)
 			if !flag
 				break
 			end
@@ -199,7 +199,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 ) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
 	tList = 0:dt:24
 
-	dT_origin = 5.0
+	dT_origin = 2
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax, 1, length(tList))
 
@@ -271,11 +271,9 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
 
 	# 开始改良解
-	#=
+	
 	begin
-		
 		nT = 11
-
 		dT_origin /= 2
 		TsMatrix = zeros(nT, nt)
 		for j ∈ 1:nt
@@ -291,7 +289,8 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 				VaryLoadVaryArea();
 				COPOverlap = COPOverlap,
 				COPWater = COPWater,
-				heatLoad = heatLoadList,#热负荷
+				COPLowFunction=COPLowFunction,
+				heatLoad = heatLoadList,# 热负荷
 				Tair = TairList,# 外部环境温度
 				costGrid = costGridList,# 电网电价
 				# 总循环参数
@@ -308,7 +307,8 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 				PheatPumpMax = PheatPumpMax,# 热泵最大功率
 				PelecHeatMax = PelecHeatMax,# 电锅炉最大功率
 				PWaterCompressorMax = PWaterCompressorMax,#水蒸气压缩机最大功率
-				Tsmin = Tsmin,#最低蓄热温度
+				Tsmin = Tsmin,# 最低蓄热温度
+				Tsmax = TstorageTankMax,
 				# 求解参数
 				TsListStart = TsMatrix[:, 1:end-1],# 状态参数高温蓄热温度列表
 				TsListEnd = TsMatrix[:, 2:end],# 状态参数高温蓄热温度列表
@@ -343,14 +343,15 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 				end
 			end
 			countAll += 1
+			println("countAll:$countAll"," dT_origin:$dT_origin")
 		end
-		# println("countAll:$countAll"," dT_origin:$dT_origin")
+		
 		# if countAll==maxcount
 		# 	CSV.write(joinpath(pwd(),"test","persionalTest","看看为啥震荡","震荡.csv"),df)
 		# 	@warn "failed to solve"
 		# end
 	end
-	=#
+	
 	
 	P1List = map(i -> P1Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	P2List = map(i -> P2Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
@@ -359,7 +360,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	realCostList = map(i -> C[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	realCostList .-= smoother * (sum(abs2.(P1List)) + sum(abs2.(P2List)) + sum(abs2.(P3List)) + sum(abs2.(PeList)))
 
-	return cost, TsList, P1List, P2List, P3List, PeList,realCostList
+	return sum(realCostList), TsList, P1List, P2List, P3List, PeList,realCostList
 end
 
 """

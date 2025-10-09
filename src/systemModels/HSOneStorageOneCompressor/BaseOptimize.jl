@@ -51,7 +51,7 @@ end
 Calculate the COP for different mode
 Return flag and COPh1,COPh2,COPh3 and COPOverlap(leap)
 """
-function getCOPbyMode(x1::Int,x2::Int,x3::Int,TsStart::Real,TsEnd::Real,params::SystemParameters,sysVariables::SystemVariables)
+function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool},TsStart::Real,TsEnd::Real,params::SystemParameters,sysVariables::SystemVariables)
     TsMid = 0.5*(TsStart+TsEnd)
     # delta[1] mode 2 can work with mode 1 and 3
     # delta[2] mode 3 can work
@@ -65,7 +65,11 @@ function getCOPbyMode(x1::Int,x2::Int,x3::Int,TsStart::Real,TsEnd::Real,params::
     end
 
     if x1==0 && x2==0 && x3==0
-        return true,1.0,1.0,1.0,1.0
+        if TsStart == TsEnd
+            return true,1.0,1.0,1.0,1.0
+        else
+            return false,1.0,1.0,1.0,1.0
+        end
     elseif x1==1 && x2==0 && x3==0
         coph1 = params.COPWater(params.TCompressorIn,params.Tuse)
         return true,
@@ -80,12 +84,16 @@ function getCOPbyMode(x1::Int,x2::Int,x3::Int,TsStart::Real,TsEnd::Real,params::
         1.0,
         1.0
     elseif x1==1 && x2==1 && x3==0
-        coph1 = params.COPWater(params.TCompressorIn,params.Tuse)
-        return true,
-        coph1,
-        params.COPWater(TsMid-params.dT,params.Tuse),
-        1.0,
-        sysVariables.COPl*coph1/(coph1+sysVariables.COPl-1)
+        if TsStart > TsEnd >= params.Tuse+params.dT
+            coph1 = params.COPWater(params.TCompressorIn,params.Tuse)
+            return true,
+            coph1,
+            params.COPWater(TsMid-params.dT,params.Tuse),
+            1.0,
+            sysVariables.COPl*coph1/(coph1+sysVariables.COPl-1)
+        else
+            return false,1.0,1.0,1.0,1.0
+        end
     elseif x1==0 && x2==0 && x3==1
         coph3=params.COPWater(params.TCompressorIn,TsMid+params.dT)
         return true,
@@ -143,7 +151,7 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
 
     # 解构变量
     cost=9999.0
-    flag=false
+    flagAll=false
     P1Value=0.0
     P2Value=0.0
     P3Value=0.0
@@ -152,6 +160,10 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
     PsView=cpm/dt*(TsEnd-TsStart)# 蓄热罐温度变化示数功率（不是真实的）
     for (x1,x2,x3) in allowedStatus
         flag,coph1,coph2,coph3,copoverlap = getCOPbyMode(x1,x2,x3,TsStart,TsEnd,params,sysVariables)
+
+        if !flag
+            continue
+        end
         
         model = Model(HiGHS.Optimizer)
         set_silent(model)
@@ -190,26 +202,26 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
         if primal_status(model) in [FEASIBLE_POINT,NEARLY_FEASIBLE_POINT]
             if objective_value(model)*dt < cost
                 cost = objective_value(model)*dt
-                flag = true
-                P1Value = value(P[1])*coph1/COPl
+                flagAll = flag
+                P1Value = value(P[1])*coph1/copoverlap
                 P2Value = value(P[2])
-                P3Value = value(P[3])*coph3/COPl
+                P3Value = value(P[3])*coph3/copoverlap
                 PeValue = value(Pe[1]+Pe[2])
             end
         else
             continue
         end
     end
-    if !flag
-        println("求解失败,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
+    if !flagAll
+        #println("求解失败,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
         return 9999.0, false, 9999.0, 9999.0, 9999.0,9999.0
     end
 
-    return cost, flag, P1Value, P2Value, P3Value, PeValue
+    return cost, flagAll, P1Value, P2Value, P3Value, PeValue
 end
 
 """
-混合整数线性规划求解器
+混合整数线性规划求解器，有问题，COP约束不对 2025.10.09
 """
 function getMinimumCost_MILP(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParameters,sysVariables::SystemVariables)
     
