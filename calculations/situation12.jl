@@ -28,7 +28,6 @@ function main()
 		fill(26.0,11)
 	)
 
-	#heatConsumptionPower = fill(1.0,48)
 	
 	heatConsumptionPower = vcat(
 		fill(0.0,16),

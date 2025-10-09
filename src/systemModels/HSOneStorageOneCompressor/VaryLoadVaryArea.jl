@@ -138,7 +138,6 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 		PeMax=PelecHeatMax,
 	)
 	for i ∈ 1:nt
-		println(i,"/",nt)
 		sysVariables = SystemVariables(
 			heatLoad[i],
 			COPLowFunction(TWaste,TCompressorIn+dT_EvaporationStandard),
@@ -197,9 +196,12 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	dt::Real = 1 / 6,# 时间步长
 	smoother::Real = 0.01,
 ) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
-	tList = 0:dt:24
+	# 先试算，温差除以时间要小于一个数，默认是10℃/2h=5
+	k_dT_to_dt = 5
+	dt_test = 2 #2小时试算
+	tList = 0:dt_test:24
 
-	dT_origin = 2
+	dT_origin = dt_test * k_dT_to_dt	#试算温度步长
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax, 1, length(tList))
 
@@ -241,41 +243,42 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		# 求解参数
 		TsListStart = TsMatrix[:, 1:end-1], # 状态参数高温蓄热温度列表
 		TsListEnd = TsMatrix[:, 2:end], # 状态参数高温蓄热温度列表
-		dt = dt, # 时间步长
+		dt = dt_test, # 时间步长
 		smoother = smoother,
 	)
-	#=
-	for i ∈ 1:nt-1
-		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看C", "C_$(i).csv"), DataFrame(C[i, :, :], :auto))
-		#println("看看C", "C_$(i).csv")
-	end
-	for i ∈ 1:nt-1
-		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P1", "P1_$(i).csv"), DataFrame(P1Matrix[i, :, :], :auto))
-		#println("看看P1", "P1_$(i).csv")
-	end
-	for i ∈ 1:nt-1
-		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P2", "P2_$(i).csv"), DataFrame(P2Matrix[i, :, :], :auto))
-		#println("看看P2", "P2_$(i).csv")
-	end
-	for i ∈ 1:nt-1
-		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P3", "P3_$(i).csv"), DataFrame(P3Matrix[i, :, :], :auto))
-		#println("看看P3", "P3_$(i).csv")
-	end
-	for i ∈ 1:nt-1
-		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看Pe", "Pe_$(i).csv"), DataFrame(PeMatrix[i, :, :], :auto))
-		#println("看看Pe", "Pe_$(i).csv")
-	end
-	=#
+	
 	## 动态规划求解
 	cost, TsIndex = GoldenRatioSolver(nT, nt, C)
-	TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
+	TsList_test = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
+
+	dT_origin = dt * k_dT_to_dt	#正式计算的初始温度步长
 
 	# 开始改良解
 	
+	tList = 0:dt:24	# 正式计算的时间步
+
+	# 把TsList从粗时间网格上扩充到细时间网格上。1小时一定是dt的整倍数
+	kt = dt_test/dt |> Int
+	TsList = zeros((nt-1)*kt+1)
+	
+	for i=1:nt-1
+		for j = 1:kt
+			TsList[(i-1)*kt+j] = TsList_test[i]+j/kt*(TsList_test[i+1]-TsList_test[i])
+		end
+	end
+	TsList[end] = TsList_test[end]
+
+	nT = 11	# 温度步数
+	nt=length(tList)
+	TsMatrix = zeros(nT, nt)
+
+	nt = length(tList)# 时间步数
+	bestValueList = fill(99.0, nT)
+
+	heatLoadList = heatConsumptionPowerFunction.(tList)
+	TairList = TairFunction.(tList)
+	costGridList = hourlyTariffFunction.(tList)
 	begin
-		nT = 11
-		dT_origin /= 2
-		TsMatrix = zeros(nT, nt)
 		for j ∈ 1:nt
 			TsMatrix[:, j] = TsList[j]-5*dT_origin:dT_origin:TsList[j]+5*dT_origin
 		end
@@ -343,7 +346,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 				end
 			end
 			countAll += 1
-			println("countAll:$countAll"," dT_origin:$dT_origin")
+			println("countAll:$countAll"," dT_origin:$(round(dT_origin,digits=4))"," cost:$(round(cost,digits=4))")
 		end
 		
 		# if countAll==maxcount
@@ -462,7 +465,6 @@ function GoldenRatioSolver(
 			)
 		end
 		count += 1
-		#println("$count/$nT", "j1=$(jList[1]),j2=$(jList[2]),j3=$(jList[3]),j4=$(jList[4])")
 	end
 
 	minCost, index = findmin(valueList)

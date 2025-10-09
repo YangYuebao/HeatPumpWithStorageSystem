@@ -78,11 +78,15 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
         1.0,
         sysVariables.COPl*coph1/(coph1+sysVariables.COPl-1)
     elseif x1==0 && x2==1 && x3==0
-        return true,
-        1.0,
-        params.COPWater(TsMid-params.dT,params.Tuse),
-        1.0,
-        1.0
+        if TsStart > TsEnd
+            return true,
+            1.0,
+            params.COPWater(TsMid-params.dT,params.Tuse),
+            1.0,
+            1.0
+        else
+            return false,1.0,1.0,1.0,1.0
+        end
     elseif x1==1 && x2==1 && x3==0
         if TsStart > TsEnd >= params.Tuse+params.dT
             coph1 = params.COPWater(params.TCompressorIn,params.Tuse)
@@ -95,20 +99,28 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
             return false,1.0,1.0,1.0,1.0
         end
     elseif x1==0 && x2==0 && x3==1
-        coph3=params.COPWater(params.TCompressorIn,TsMid+params.dT)
-        return true,
-        1.0,
-        1.0,
-        coph3,
-        sysVariables.COPl*coph3/(coph3+sysVariables.COPl-1)
+        if TsStart < TsEnd
+            coph3=params.COPWater(params.TCompressorIn,TsMid+params.dT)
+            return true,
+            1.0,
+            1.0,
+            coph3,
+            sysVariables.COPl*coph3/(coph3+sysVariables.COPl-1)
+        else
+            return false,1.0,1.0,1.0,1.0
+        end
         
     elseif x1==1 && x2==0 && x3==1
-        tempCOP=params.COPWater(params.TCompressorIn,max(params.Tuse,TsMid+params.dT))
-        return true,
-        tempCOP,
-        1.0,
-        tempCOP,
-        sysVariables.COPl*tempCOP/(tempCOP+sysVariables.COPl-1)
+        if TsStart < TsEnd
+            tempCOP=params.COPWater(params.TCompressorIn,max(params.Tuse,TsMid+params.dT))
+            return true,
+            tempCOP,
+            1.0,
+            tempCOP,
+            sysVariables.COPl*tempCOP/(tempCOP+sysVariables.COPl-1)
+        else
+            return false,1.0,1.0,1.0,1.0
+        end
     else
         @warn "error status x=[$x1,$x2,$x3]"
         return false,1.0,1.0,1.0,1.0
