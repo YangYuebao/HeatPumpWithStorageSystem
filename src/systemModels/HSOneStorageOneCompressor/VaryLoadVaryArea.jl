@@ -251,6 +251,18 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	cost, TsIndex = GoldenRatioSolver(nT, nt, C)
 	TsList_test = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
 
+	# 验证测试首尾是否一致
+	if TsList_test[1] != TsList_test[end]
+		println("""
+		试算首尾Ts不一致
+		TsList_test[1] = $(TsList_test[1])
+		TsList_test[end] = $(TsList_test[end])
+		dT_origin = $dT_origin
+		""")
+	else
+		#println("试算首尾Ts一致")
+	end
+
 	dT_origin = dt * k_dT_to_dt	#正式计算的初始温度步长
 
 	# 开始改良解
@@ -263,10 +275,22 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	
 	for i=1:nt-1
 		for j = 1:kt
-			TsList[(i-1)*kt+j] = TsList_test[i]+j/kt*(TsList_test[i+1]-TsList_test[i])
+			TsList[(i-1)*kt+j] = TsList_test[i]+(j-1)/kt*(TsList_test[i+1]-TsList_test[i])
 		end
 	end
 	TsList[end] = TsList_test[end]
+	# 验证扩充首尾是否一致
+	if TsList[1] != TsList[end]
+		println("""
+		扩充首尾Ts不一致
+		长度为$(length(TsList))
+		TsList[1] = $(TsList[1])
+		TsList[end] = $(TsList[end])
+		dT_origin = $(dT_origin/kt)
+		""")
+	else
+		#println("扩充首尾Ts一致")
+	end
 
 	nT = 11	# 温度步数
 	nt=length(tList)
@@ -321,6 +345,19 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 			## 动态规划求解
 			cost, TsIndex = GoldenRatioSolver(nT, nt, C)
 			TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
+
+			# 验证更新首尾是否一致
+			if TsList[1] != TsList[end]
+				println("""
+				更新首尾Ts不一致
+				TsList[1] = $(TsList[1])
+				TsList[end] = $(TsList[end])
+				dT_origin = $dT_origin
+				""")
+			else
+				#println("更新首尾Ts一致")
+			end
+
 			df[!, "$countAll"] = TsList
 			flag_nextgap = true
 			for j ∈ 1:nt #范围调整

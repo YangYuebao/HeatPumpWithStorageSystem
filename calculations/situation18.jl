@@ -68,7 +68,7 @@ function main()
 	Tsmin = 120
 
 	# 计算参数
-	dT = 0.05
+	dT = 0.01
 	#dt = 1/2# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 
 	dt = 0.5
@@ -84,10 +84,10 @@ function main()
 
 	# 热容的计算列表
 	#heatStorageCapacityList = 1.0:1.0:10.0
-	heatStorageCapacityList = 8.0:1.0:8.0
+	heatStorageCapacityList = 0.0:1.0:10.0
 	# 用热温度的计算列表
 	#TuseList = 130.0:10.0:180.0
-	TuseList = 150.0:10.0:150.0
+	TuseList = 130.0:10.0:180.0
 
 	# 总算例数
 	totalCalculationTime = length(overlapRefrigerantList) * length(heatStorageCapacityList) * length(TuseList)
@@ -237,7 +237,7 @@ function main()
 					P3ListGo = []
 					PeListGo = []
 					realCostListGo = []
-					for _ ∈ 1:1
+					for _ ∈ 1:3
 						minCostGotemp, minTsListGotemp, P1ListGotemp, P2ListGotemp, P3ListGotemp, PeListGotemp, realCostListtemp = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
 							COPOverlap = COPOverlap,
 							COPWater = COPWater,
@@ -265,6 +265,11 @@ function main()
 							#lambdaPe=lambdaPe,
 							smoother = smoother,
 						)
+						if minTsListGotemp[1] != minTsListGotemp[end]
+							println("直接返回首尾Ts不一致")
+						else
+							#println("直接返回首尾Ts一致")
+						end
 						# 发现更小解，就选择更小解
 						if minCostGotemp < minCostGo
 							minCostGo = minCostGotemp
@@ -276,6 +281,14 @@ function main()
 							realCostListGo = realCostListtemp
 						end
 					end
+					
+					# 验证首尾是否一致
+					if minTsListGo[1] != minTsListGo[end]
+						println("最终首尾Ts不一致")
+					else
+						#println("最终首尾Ts一致")
+					end
+					
 
 					# 验证结果是否满足能量守恒
 					caseName = or.refrigerant * "_" * string(Tuse) * "_" * string(heatStorageCapacity) * "h"
