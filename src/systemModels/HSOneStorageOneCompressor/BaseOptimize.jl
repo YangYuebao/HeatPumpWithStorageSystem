@@ -9,7 +9,8 @@ struct SystemParameters	# 系统常量
     cpm::Real            # 热容质量乘积
     COPWater::Function      # 水COP计算函数
     PhMax::Real          # 热功率最大值
-    PeMax::Real          # 电功率最大值,
+    PeMax::Real          # 电功率最大值
+    #cp_cw
     
     SystemParameters(;
         ThMax::Real,Tuse::Real,dT::Real,TCompressorIn::Real,cpm::Real,COPWater::Function,PhMax::Real,PeMax::Real

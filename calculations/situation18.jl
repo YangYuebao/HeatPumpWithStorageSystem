@@ -171,19 +171,21 @@ function main()
 			filePathTuse = joinpath(filePathOr, "Tuse_" * string(Tuse))
 			dfEconomic = DataFrame([(col => Float64[]) for col in column_names_eco]...)# 经济性指标
 
+			#=
 			temp = COPWater(TCompressorIn, Tuse)
 			temp2 = COPOverlap(TWaste, Tuse)
 			PLowMAX = maximum(heatConsumptionPower) * (temp - 1) / (COPLow + temp - 1) / temp2
 			PHighMAX = maximum(heatConsumptionPower) * (COPLow) / (COPLow + temp - 1) / temp2
 
-			#=
+			
 			无储能的曲线计算时需要修改电加热逻辑
 			=#
-			temp = PLowMAX + PHighMAX
-			hf = generateGridPriceFunction(hourlyTariff, 24)
+			#temp = PLowMAX + PHighMAX
+			#hf = generateGridPriceFunction(hourlyTariff, 24)
 			#=
+			#=:工作时长, :蓄热时长, :承压水体积, :低温热泵总功率, :高温热泵总功率, :电加热功率, :每天运行费用, :总电度=#
 			push!(dfEconomic,[
-				workingHours,
+				0.0,
 				0.0,
 				0.0,
 				PLowMAX,

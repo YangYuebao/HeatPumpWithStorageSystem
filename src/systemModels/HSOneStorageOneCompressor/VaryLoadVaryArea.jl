@@ -134,7 +134,7 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 		TCompressorIn = TCompressorIn,
 		cpm=cpm_h,
 		COPWater = COPWater,
-		PhMax=PheatPumpMax,
+		PhMax=PWaterCompressorMax,
 		PeMax=PelecHeatMax,
 	)
 	for i ∈ 1:nt
@@ -196,6 +196,43 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	dt::Real = 1 / 6,# 时间步长
 	smoother::Real = 0.01,
 ) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
+	if cpm_h == 0
+		#return sum(realCostList), TsList, P1List, P2List, P3List, PeList,realCostList
+		nt = Int(24/dt+1)
+		tList = 0:dt:24
+		TsList = fill(Tsmin,nt)
+		P1List = zeros(nt-1)
+		PeList = zeros(nt-1)
+		realCostList = zeros(nt-1)
+
+		heatLoadList = heatConsumptionPowerFunction.(tList)
+		TairList = TairFunction.(tList)
+		costGridList = hourlyTariffFunction.(tList)
+
+		params=SystemParameters(
+			ThMax = TcChangeToElec,
+			Tuse = Tuse,
+			dT=dT_EvaporationStandard,
+			TCompressorIn = TCompressorIn,
+			cpm=cpm_h,
+			COPWater = COPWater,
+			PhMax=PWaterCompressorMax,
+			PeMax=PelecHeatMax
+		)
+		for i ∈ 1:nt-1
+			sysVariables = SystemVariables(
+				heatLoadList[i],
+				COPLowFunction(TWaste,TCompressorIn+dT_EvaporationStandard),
+				TairList[i],
+				TWaste
+			)
+			cost_test, _, P1List[i], _, _, PeList[i] = getMinimumCost(TsList[i], TsList[i+1], dt, params, sysVariables)
+
+			realCostList[i] = cost_test * costGridList[i]
+		end
+		return sum(realCostList), TsList, P1List, zeros(nt-1), zeros(nt-1), PeList,realCostList
+	end
+
 	# 先试算，温差除以时间要小于一个数，默认是10℃/2h=5
 	k_dT_to_dt = 5
 	dt_test = 2 #2小时试算
@@ -207,7 +244,6 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 
 	nT = size(TsMatrix, 1)# 温度步数
 	nt = length(tList)# 时间步数
-	bestValueList = fill(99.0, nT)
 
 	heatLoadList = heatConsumptionPowerFunction.(tList)
 	TairList = TairFunction.(tList)
@@ -297,7 +333,6 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	TsMatrix = zeros(nT, nt)
 
 	nt = length(tList)# 时间步数
-	bestValueList = fill(99.0, nT)
 
 	heatLoadList = heatConsumptionPowerFunction.(tList)
 	TairList = TairFunction.(tList)
@@ -373,13 +408,15 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 				for j ∈ 1:nt
 					TsMatrix[:, j] = TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
 				end
+				countSingleGap = 0
 			else
 				countSingleGap += 1
 				if countSingleGap > 6
-					dT_origin = dT_origin * 2 * (1 + 0.5 * (rand() - 0.5))
+					dT_origin = min(dT_origin * 2 * (1 + 0.5 * (rand() - 0.5)),dt * k_dT_to_dt)
 					for j ∈ 1:nt
 						TsMatrix[:, j] = TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
 					end
+					countSingleGap = 0
 				end
 			end
 			countAll += 1
