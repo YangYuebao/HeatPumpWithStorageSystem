@@ -10,22 +10,29 @@ struct SystemParameters	# 系统常量
     COPWater::Function      # 水COP计算函数
     PhMax::Real          # 热功率最大值
     PeMax::Real          # 电功率最大值
-    #cp_cw
+    cp_cw::Real
+    Tsmin::Real
+    Tsmax::Real
     
     SystemParameters(;
-        ThMax::Real,Tuse::Real,dT::Real,TCompressorIn::Real,cpm::Real,COPWater::Function,PhMax::Real,PeMax::Real
-    )=new(ThMax,Tuse,dT,TCompressorIn,cpm,COPWater,PhMax,PeMax)
+        ThMax::Real,Tuse::Real,dT::Real,TCompressorIn::Real,cpm::Real,COPWater::Function,PhMax::Real,PeMax::Real,cp_cw::Real,Tsmin::Real,Tsmax::Real
+    )=new(ThMax,Tuse,dT,TCompressorIn,cpm,COPWater,PhMax,PeMax,cp_cw,Tsmin,Tsmax)
 end
 
 macro unpackParameters(param_name)
     # 生成展开语句
     ex = quote
+        ThMax = $(param_name).ThMax
+        Tuse = $(param_name).Tuse
         dT = $(param_name).dT
         TCompressorIn = $(param_name).TCompressorIn
         cpm = $(param_name).cpm
         COPWater = $(param_name).COPWater
         PhMax = $(param_name).PhMax
         PeMax = $(param_name).PeMax
+        cp_cw = $(param_name).cp_cw
+        Tsmin = $(param_name).Tsmin
+        Tsmax = $(param_name).Tsmax
     end
     # 取消卫生宏。卫生宏为防止与空间中变量名冲突会进行重命名。esc可以取消这一过程
     return esc(ex)

@@ -136,6 +136,10 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 		COPWater = COPWater,
 		PhMax=PWaterCompressorMax,
 		PeMax=PelecHeatMax,
+		
+		cp_cw = cp_cw,	
+		Tsmin = Tsmin,
+		Tsmax = Tsmax
 	)
 	for i ∈ 1:nt
 		sysVariables = SystemVariables(
@@ -328,7 +332,8 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		#println("扩充首尾Ts一致")
 	end
 
-	nT = 11	# 温度步数
+	nT = 5	# 温度步数
+	half_nT = Int((nT-1)/2)
 	nt=length(tList)
 	TsMatrix = zeros(nT, nt)
 
@@ -337,9 +342,9 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	heatLoadList = heatConsumptionPowerFunction.(tList)
 	TairList = TairFunction.(tList)
 	costGridList = hourlyTariffFunction.(tList)
-	begin
+
 		for j ∈ 1:nt
-			TsMatrix[:, j] = TsList[j]-5*dT_origin:dT_origin:TsList[j]+5*dT_origin
+			TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:TsList[j]+half_nT*dT_origin
 		end
 		countAll = 0
 		countSingleGap = 0
@@ -397,7 +402,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 			flag_nextgap = true
 			for j ∈ 1:nt #范围调整
 				if TsIndex[j] == 1 || TsIndex[j] == nT # 温度范围要更小
-					TsMatrix[:, j] = TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
+					TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 					flag_nextgap = false
 				end
 			end
@@ -406,7 +411,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 				# =dT_origin/2*(1+0.5*(rand()-0.5))
 				dT_origin = dT_origin / 2 * (1 + 0.5 * (rand() - 0.5))
 				for j ∈ 1:nt
-					TsMatrix[:, j] = TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
+					TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 				end
 				countSingleGap = 0
 			else
@@ -414,7 +419,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 				if countSingleGap > 6
 					dT_origin = min(dT_origin * 2 * (1 + 0.5 * (rand() - 0.5)),dt * k_dT_to_dt)
 					for j ∈ 1:nt
-						TsMatrix[:, j] = TsList[j]-5*dT_origin:dT_origin:(TsList[j]+5*dT_origin+1e-8)
+						TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 					end
 					countSingleGap = 0
 				end
@@ -427,7 +432,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		# 	CSV.write(joinpath(pwd(),"test","persionalTest","看看为啥震荡","震荡.csv"),df)
 		# 	@warn "failed to solve"
 		# end
-	end
+	
 	
 	
 	P1List = map(i -> P1Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
