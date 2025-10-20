@@ -200,7 +200,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 			P3ListGo = []
 			PeListGo = []
 			realCostListGo = []
-			for _ ∈ 1:1
+			for _ ∈ 1:3
 				minCostGotemp, minTsListGotemp, P1ListGotemp, P2ListGotemp, P3ListGotemp, PeListGotemp, realCostListtemp = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
 					COPOverlap = COPOverlapFunction,
 					COPWater = COPWater,
@@ -262,7 +262,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 				TCompressorIn = TCompressorIn,
 				cpm = cpm_h,
 				COPWater = COPWater,
-				PhMax = PheatPumpMax,
+				PhMax = PWaterCompressorMax,
 				PeMax = PelecHeatMax,
 				cp_cw = cp_cw,	
 				Tsmin = Tsmin,
@@ -535,7 +535,7 @@ begin
 	Tsmin = 120
 
 	# 计算参数
-	dT = 0.5
+	dT = 0.05
 	#dt = 1/2# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 
 	dt = 0.5
@@ -550,11 +550,11 @@ begin
 	]
 
 	# 热容的计算列表
-	#heatStorageCapacityList = 0.0:1.0:10.0
-	heatStorageCapacityList = [3.0]
+	heatStorageCapacityList = 0.0:1.0:10.0
+	#heatStorageCapacityList = [170.0]
 	# 用热温度的计算列表
-	#TuseList = 130.0:10.0:180.0
-	TuseList = [130.0]
+	TuseList = 130.0:10.0:180.0
+	#TuseList = [3.0]
 end
 
 caseParameters = CaseParameters(;

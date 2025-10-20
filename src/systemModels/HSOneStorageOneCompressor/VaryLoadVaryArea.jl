@@ -23,8 +23,8 @@ function getStateTransitionCost_SingleStep(
 	params::SystemParameters,
 	sysVariables::SystemVariables,
 	dt::Real = 1.0,# 时间步长
-	Tsmin::Real = 120.0 ,# 蓄热的最小温度
-	Tsmax::Real = 220.0
+	Tsmin::Real = 120.0,# 蓄热的最小温度
+	Tsmax::Real = 220.0,
 )
 	#heatLoadPumpMax = PWaterCompressorMax * COP2_design# 热泵设计的供热功率
 
@@ -49,12 +49,12 @@ function getStateTransitionCost_SingleStep(
 		midIndex = findfirst(x -> x >= Tsaim, TsListStart)
 		# 大于midIndex的是温度不增部分，小于midIndex的是温度下降部分
 		if isnothing(midIndex)
-			midIndex = length(TsListStart)+1
+			midIndex = length(TsListStart) + 1
 		end
 
 		# 温度不增部分，出现不可行解时跳过
-		for i=midIndex:length(TsListStart)
-			Tsstart=TsListStart[i]
+		for i ∈ midIndex:length(TsListStart)
+			Tsstart = TsListStart[i]
 			if Tsstart < Tsmin || Tsaim > Tsmax
 				C[i, j] = 9999.0
 				P1Matrix[i, j] = 9999.0
@@ -62,13 +62,17 @@ function getStateTransitionCost_SingleStep(
 				PeMatrix[i, j] = 9999.0
 				continue
 			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params,sysVariables)
+			C[i, j], flag, P1Matrix[i, j], P2Matrix[i, j], P3Matrix[i, j], PeMatrix[i, j] = getMinimumCost(Tsstart, Tsaim, dt, params, sysVariables)
 			if !flag
+				C[i, j] = 9999.0
+				P1Matrix[i, j] = 9999.0
+				P3Matrix[i, j] = 9999.0
+				PeMatrix[i, j] = 9999.0
 				break
 			end
 		end
-		for i = midIndex-1:-1:1
-			Tsstart=TsListStart[i]
+		for i ∈ midIndex-1:-1:1
+			Tsstart = TsListStart[i]
 			if Tsstart < Tsmin || Tsaim > Tsmax
 				C[i, j] = 9999.0
 				P1Matrix[i, j] = 9999.0
@@ -76,8 +80,12 @@ function getStateTransitionCost_SingleStep(
 				PeMatrix[i, j] = 9999.0
 				continue
 			end
-			C[i,j],flag,P1Matrix[i, j],P2Matrix[i,j],P3Matrix[i,j],PeMatrix[i,j] = getMinimumCost(Tsstart,Tsaim,dt,params,sysVariables)
+			C[i, j], flag, P1Matrix[i, j], P2Matrix[i, j], P3Matrix[i, j], PeMatrix[i, j] = getMinimumCost(Tsstart, Tsaim, dt, params, sysVariables)
 			if !flag
+				C[i, j] = 9999.0
+				P1Matrix[i, j] = 9999.0
+				P3Matrix[i, j] = 9999.0
+				PeMatrix[i, j] = 9999.0
 				break
 			end
 		end
@@ -127,41 +135,39 @@ function getStateTransitionCost(::T, ::VaryLoadVaryArea;
 	P3Matrix = zeros(nt, nT, nT)
 	PeMatrix = zeros(nt, nT, nT)
 
-	params=SystemParameters(
+	params = SystemParameters(
 		ThMax = TcChangeToElec,
 		Tuse = Tuse,
-		dT=dT_EvaporationStandard,
+		dT = dT_EvaporationStandard,
 		TCompressorIn = TCompressorIn,
-		cpm=cpm_h,
+		cpm = cpm_h,
 		COPWater = COPWater,
-		PhMax=PWaterCompressorMax,
-		PeMax=PelecHeatMax,
-		
-		cp_cw = cp_cw,	
+		PhMax = PWaterCompressorMax,
+		PeMax = PelecHeatMax, cp_cw = cp_cw,
 		Tsmin = Tsmin,
-		Tsmax = Tsmax
+		Tsmax = Tsmax,
 	)
 	for i ∈ 1:nt
 		sysVariables = SystemVariables(
 			heatLoad[i],
-			COPLowFunction(TWaste,TCompressorIn+dT_EvaporationStandard),
+			COPLowFunction(TWaste, TCompressorIn + dT_EvaporationStandard),
 			Tair[i],
-    		TWaste
+			TWaste,
 		)
 		# 计算每个时段内的状态转移矩阵
 		C_singlestep, P1Matrix[i, :, :], P2Matrix[i, :, :], P3Matrix[i, :, :], PeMatrix[i, :, :] = getStateTransitionCost_SingleStep(
 			PressedWaterOneStorageOneCompressor();
-			COPOverlap=COPOverlap,
-			Tair=Tair[i],
-			latentHeat=latentHeat,
-			cp_cw=cp_cw,
+			COPOverlap = COPOverlap,
+			Tair = Tair[i],
+			latentHeat = latentHeat,
+			cp_cw = cp_cw,
 			TsListStart = TsListStart[:, i],
 			TsListEnd = TsListEnd[:, i],
-			params=params,
-			sysVariables=sysVariables,
-			dt=dt,
-			Tsmin=Tsmin,
-			Tsmax=Tsmax			
+			params = params,
+			sysVariables = sysVariables,
+			dt = dt,
+			Tsmin = Tsmin,
+			Tsmax = Tsmax,
 		)
 		C_smoothed[i, :, :] = C_singlestep * costGrid[i] + smoother * (P1Matrix[i, :, :] .^ 2 + P2Matrix[i, :, :] .^ 2 + P3Matrix[i, :, :] .^ 2 + PeMatrix[i, :, :] .^ 2)
 	end
@@ -178,16 +184,16 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	TairFunction::Function,# 环境温度函数
 
 	# 总循环参数
-	Tuse::Real,			# 供热蒸汽温度
+	Tuse::Real,# 供热蒸汽温度
 	TCompressorIn::Real,# 中间级温度
-	dT_EvaporationStandard::Real,	#全蒸温差
-	latentHeat::Real,	# 汽化潜热
-	cp_cw::Real,		# 循环水定压热容
-	cp_cs::Real,		# 蒸汽定压热容 cp cycled steam
+	dT_EvaporationStandard::Real,#全蒸温差
+	latentHeat::Real,# 汽化潜热
+	cp_cw::Real,# 循环水定压热容
+	cp_cs::Real,# 蒸汽定压热容 cp cycled steam
 	TcChangeToElec::Real,
-	TWaste::Real,		# 废热回收蒸发器温度
+	TWaste::Real,# 废热回收蒸发器温度
 	# 高温蓄热参数
-	cpm_h::Real,		# 高温蓄热热容
+	cpm_h::Real,# 高温蓄热热容
 
 	# 设备运行约束
 	TstorageTankMax::Real,# 蓄热罐的最高温度
@@ -202,39 +208,42 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 ) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
 	if cpm_h == 0
 		#return sum(realCostList), TsList, P1List, P2List, P3List, PeList,realCostList
-		nt = Int(24/dt+1)
+		nt = Int(24 / dt + 1)
 		tList = 0:dt:24
-		TsList = fill(Tsmin,nt)
-		P1List = zeros(nt-1)
-		PeList = zeros(nt-1)
-		realCostList = zeros(nt-1)
+		TsList = fill(Tsmin, nt)
+		P1List = zeros(nt - 1)
+		PeList = zeros(nt - 1)
+		realCostList = zeros(nt - 1)
 
 		heatLoadList = heatConsumptionPowerFunction.(tList)
 		TairList = TairFunction.(tList)
 		costGridList = hourlyTariffFunction.(tList)
 
-		params=SystemParameters(
+		params = SystemParameters(
 			ThMax = TcChangeToElec,
 			Tuse = Tuse,
-			dT=dT_EvaporationStandard,
+			dT = dT_EvaporationStandard,
 			TCompressorIn = TCompressorIn,
-			cpm=cpm_h,
+			cpm = cpm_h,
 			COPWater = COPWater,
-			PhMax=PWaterCompressorMax,
-			PeMax=PelecHeatMax
+			PhMax = PWaterCompressorMax,
+			PeMax = PelecHeatMax,
+			cp_cw = cp_cw,
+			Tsmin = Tsmin,
+			Tsmax = TstorageTankMax,
 		)
 		for i ∈ 1:nt-1
 			sysVariables = SystemVariables(
 				heatLoadList[i],
-				COPLowFunction(TWaste,TCompressorIn+dT_EvaporationStandard),
+				COPLowFunction(TWaste, TCompressorIn + dT_EvaporationStandard),
 				TairList[i],
-				TWaste
+				TWaste,
 			)
 			cost_test, _, P1List[i], _, _, PeList[i] = getMinimumCost(TsList[i], TsList[i+1], dt, params, sysVariables)
 
 			realCostList[i] = cost_test * costGridList[i]
 		end
-		return sum(realCostList), TsList, P1List, zeros(nt-1), zeros(nt-1), PeList,realCostList
+		return sum(realCostList), TsList, P1List, zeros(nt - 1), zeros(nt - 1), PeList, realCostList
 	end
 
 	# 先试算，温差除以时间要小于一个数，默认是10℃/2h=5
@@ -242,7 +251,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	dt_test = 2 #2小时试算
 	tList = 0:dt_test:24
 
-	dT_origin = dt_test * k_dT_to_dt	#试算温度步长
+	dT_origin = dt_test * k_dT_to_dt#试算温度步长
 
 	TsMatrix = repeat(TCompressorIn+dT_EvaporationStandard:dT_origin:TstorageTankMax, 1, length(tList))
 
@@ -260,7 +269,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		VaryLoadVaryArea();
 		COPOverlap = COPOverlap,
 		COPWater = COPWater,
-		COPLowFunction=COPLowFunction,
+		COPLowFunction = COPLowFunction,
 		heatLoad = heatLoadList,# 热负荷
 		Tair = TairList,# 外部环境温度
 		costGrid = costGridList,# 电网电价
@@ -286,7 +295,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		dt = dt_test, # 时间步长
 		smoother = smoother,
 	)
-	
+
 	## 动态规划求解
 	cost, TsIndex = GoldenRatioSolver(nT, nt, C)
 	TsList_test = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
@@ -303,19 +312,19 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		#println("试算首尾Ts一致")
 	end
 
-	dT_origin = dt * k_dT_to_dt	#正式计算的初始温度步长
+	dT_origin = dt * k_dT_to_dt#正式计算的初始温度步长
 
 	# 开始改良解
-	
-	tList = 0:dt:24	# 正式计算的时间步
+
+	tList = 0:dt:24# 正式计算的时间步
 
 	# 把TsList从粗时间网格上扩充到细时间网格上。1小时一定是dt的整倍数
-	kt = dt_test/dt |> Int
-	TsList = zeros((nt-1)*kt+1)
-	
-	for i=1:nt-1
-		for j = 1:kt
-			TsList[(i-1)*kt+j] = TsList_test[i]+(j-1)/kt*(TsList_test[i+1]-TsList_test[i])
+	kt = dt_test / dt |> Int
+	TsList = zeros((nt - 1) * kt + 1)
+
+	for i ∈ 1:nt-1
+		for j ∈ 1:kt
+			TsList[(i-1)*kt+j] = TsList_test[i] + (j - 1) / kt * (TsList_test[i+1] - TsList_test[i])
 		end
 	end
 	TsList[end] = TsList_test[end]
@@ -332,9 +341,9 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		#println("扩充首尾Ts一致")
 	end
 
-	nT = 5	# 温度步数
-	half_nT = Int((nT-1)/2)
-	nt=length(tList)
+	nT = 5# 温度步数
+	half_nT = Int((nT - 1) / 2)
+	nt = length(tList)
 	TsMatrix = zeros(nT, nt)
 
 	nt = length(tList)# 时间步数
@@ -343,98 +352,105 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	TairList = TairFunction.(tList)
 	costGridList = hourlyTariffFunction.(tList)
 
-		for j ∈ 1:nt
-			TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:TsList[j]+half_nT*dT_origin
+	for j ∈ 1:nt
+		TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:TsList[j]+half_nT*dT_origin
+	end
+	countAll = 0
+	countSingleGap = 0
+	maxcount = 500
+	df = DataFrame()
+	while dT_origin > dT && countAll < maxcount
+		C, P1Matrix, P2Matrix, P3Matrix, PeMatrix = getStateTransitionCost(
+			PressedWaterOneStorageOneCompressor(),
+			VaryLoadVaryArea();
+			COPOverlap = COPOverlap,
+			COPWater = COPWater,
+			COPLowFunction = COPLowFunction,
+			heatLoad = heatLoadList,# 热负荷
+			Tair = TairList,# 外部环境温度
+			costGrid = costGridList,# 电网电价
+			# 总循环参数
+			Tuse = Tuse,# 供热蒸汽温度
+			dT_EvaporationStandard = dT_EvaporationStandard,#全蒸温差
+			latentHeat = latentHeat,# 汽化潜热
+			cp_cw = cp_cw,# 循环水定压热容
+			TcChangeToElec = TcChangeToElec,
+			TWaste = TWaste,# 废热回收蒸发器温度
+			TCompressorIn = TCompressorIn,
+			# 高温蓄热参数
+			cpm_h = cpm_h,# 高温蓄热热容
+			# 设备运行约束
+			PheatPumpMax = PheatPumpMax,# 热泵最大功率
+			PelecHeatMax = PelecHeatMax,# 电锅炉最大功率
+			PWaterCompressorMax = PWaterCompressorMax,#水蒸气压缩机最大功率
+			Tsmin = Tsmin,# 最低蓄热温度
+			Tsmax = TstorageTankMax,
+			# 求解参数
+			TsListStart = TsMatrix[:, 1:end-1],# 状态参数高温蓄热温度列表
+			TsListEnd = TsMatrix[:, 2:end],# 状态参数高温蓄热温度列表
+			dt = dt,# 时间步长
+			smoother = smoother,
+		)
+		## 动态规划求解
+		cost, TsIndex = GoldenRatioSolver(nT, nt, C)
+		TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
+
+		# 验证更新首尾是否一致
+		if TsList[1] != TsList[end]
+			println("""
+			更新首尾Ts不一致
+			TsList[1] = $(TsList[1])
+			TsList[end] = $(TsList[end])
+			dT_origin = $dT_origin
+			""")
+		else
+			#println("更新首尾Ts一致")
 		end
-		countAll = 0
-		countSingleGap = 0
-		maxcount = 500
-		df = DataFrame()
-		while dT_origin > dT && countAll < maxcount
-			C, P1Matrix, P2Matrix, P3Matrix, PeMatrix = getStateTransitionCost(
-				PressedWaterOneStorageOneCompressor(),
-				VaryLoadVaryArea();
-				COPOverlap = COPOverlap,
-				COPWater = COPWater,
-				COPLowFunction=COPLowFunction,
-				heatLoad = heatLoadList,# 热负荷
-				Tair = TairList,# 外部环境温度
-				costGrid = costGridList,# 电网电价
-				# 总循环参数
-				Tuse = Tuse,# 供热蒸汽温度
-				dT_EvaporationStandard = dT_EvaporationStandard,#全蒸温差
-				latentHeat = latentHeat,# 汽化潜热
-				cp_cw = cp_cw,# 循环水定压热容
-				TcChangeToElec = TcChangeToElec,
-				TWaste = TWaste,# 废热回收蒸发器温度
-				TCompressorIn = TCompressorIn,
-				# 高温蓄热参数
-				cpm_h = cpm_h,# 高温蓄热热容
-				# 设备运行约束
-				PheatPumpMax = PheatPumpMax,# 热泵最大功率
-				PelecHeatMax = PelecHeatMax,# 电锅炉最大功率
-				PWaterCompressorMax = PWaterCompressorMax,#水蒸气压缩机最大功率
-				Tsmin = Tsmin,# 最低蓄热温度
-				Tsmax = TstorageTankMax,
-				# 求解参数
-				TsListStart = TsMatrix[:, 1:end-1],# 状态参数高温蓄热温度列表
-				TsListEnd = TsMatrix[:, 2:end],# 状态参数高温蓄热温度列表
-				dt = dt,# 时间步长
-				smoother = smoother,
-			)
-			## 动态规划求解
-			cost, TsIndex = GoldenRatioSolver(nT, nt, C)
-			TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
 
-			# 验证更新首尾是否一致
-			if TsList[1] != TsList[end]
-				println("""
-				更新首尾Ts不一致
-				TsList[1] = $(TsList[1])
-				TsList[end] = $(TsList[end])
-				dT_origin = $dT_origin
-				""")
-			else
-				#println("更新首尾Ts一致")
-			end
+		df[!, "$countAll"] = TsList
+		flag_nextgap = true
 
-			df[!, "$countAll"] = TsList
-			flag_nextgap = true
-			for j ∈ 1:nt #范围调整
-				if TsIndex[j] == 1 || TsIndex[j] == nT # 温度范围要更小
-					TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
-					flag_nextgap = false
-				end
+		# 初值有问题
+		if cost > 1000
+			TsIndex = fill(Tuse,nt)
+			flag_nextgap = false
+		end
+
+		for j ∈ 1:nt #范围调整
+			if TsIndex[j] == 1 || TsIndex[j] == nT # 温度范围要更小
+				TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
+				flag_nextgap = false
 			end
-			# 如果没有范围调整，那么减小间隔
-			if flag_nextgap
-				# =dT_origin/2*(1+0.5*(rand()-0.5))
-				dT_origin = dT_origin / 2 * (1 + 0.5 * (rand() - 0.5))
+		end
+		# 如果没有范围调整，那么减小间隔
+		if flag_nextgap
+			# =dT_origin/2*(1+0.5*(rand()-0.5))
+			dT_origin = dT_origin / 2 * (1 + 0.5 * (rand() - 0.5))
+			for j ∈ 1:nt
+				TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
+			end
+			countSingleGap = 0
+		else
+			countSingleGap += 1
+			if countSingleGap > 6
+				dT_origin = min(dT_origin * 2 * (1 + 0.5 * (rand() - 0.5)), dt * k_dT_to_dt)
 				for j ∈ 1:nt
 					TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 				end
 				countSingleGap = 0
-			else
-				countSingleGap += 1
-				if countSingleGap > 6
-					dT_origin = min(dT_origin * 2 * (1 + 0.5 * (rand() - 0.5)),dt * k_dT_to_dt)
-					for j ∈ 1:nt
-						TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
-					end
-					countSingleGap = 0
-				end
 			end
-			countAll += 1
-			println("countAll:$countAll"," dT_origin:$(round(dT_origin,digits=4))"," cost:$(round(cost,digits=4))")
 		end
-		
-		# if countAll==maxcount
-		# 	CSV.write(joinpath(pwd(),"test","persionalTest","看看为啥震荡","震荡.csv"),df)
-		# 	@warn "failed to solve"
-		# end
-	
-	
-	
+		countAll += 1
+		println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
+	end
+
+	# if countAll==maxcount
+	# 	CSV.write(joinpath(pwd(),"test","persionalTest","看看为啥震荡","震荡.csv"),df)
+	# 	@warn "failed to solve"
+	# end
+
+
+
 	P1List = map(i -> P1Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	P2List = map(i -> P2Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	P3List = map(i -> P3Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
@@ -442,7 +458,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 	realCostList = map(i -> C[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	realCostList .-= smoother * (sum(abs2.(P1List)) + sum(abs2.(P2List)) + sum(abs2.(P3List)) + sum(abs2.(PeList)))
 
-	return sum(realCostList), TsList, P1List, P2List, P3List, PeList,realCostList
+	return sum(realCostList), TsList, P1List, P2List, P3List, PeList, realCostList
 end
 
 """
