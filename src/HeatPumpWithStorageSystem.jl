@@ -81,7 +81,7 @@ export NoSimplify,ConstloadandArea,VaryLoadVaryArea
 
 # 求解单压缩机系统的优化方法
 export ExhaustiveMethod,GoldenRatioMethod,MomentumMethod
-export GoldenRatioSolver
+export ExhaustiveSolver,GoldenRatioSolver
 
 
 # 定义宏用于展开结构体字段

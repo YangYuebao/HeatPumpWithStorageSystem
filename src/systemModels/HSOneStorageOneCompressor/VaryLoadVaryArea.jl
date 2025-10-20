@@ -392,7 +392,7 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 			smoother = smoother,
 		)
 		## 动态规划求解
-		cost, TsIndex = GoldenRatioSolver(nT, nt, C)
+		cost, TsIndex = ExhaustiveSolver(nT, nt, C)
 		TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
 
 		# 验证更新首尾是否一致
@@ -409,15 +409,18 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 
 		df[!, "$countAll"] = TsList
 		flag_nextgap = true
+		isStartValueValid = true
 
 		# 初值有问题
 		if cost > 1000
-			TsIndex = fill(Tuse,nt)
+			println("初值有问题")
+			TsList = fill(Tuse,nt)
 			flag_nextgap = false
+			isStartValueValid = false
 		end
 
 		for j ∈ 1:nt #范围调整
-			if TsIndex[j] == 1 || TsIndex[j] == nT # 温度范围要更小
+			if TsIndex[j] == 1 || TsIndex[j] == nT || !isStartValueValid # 温度范围要更小
 				TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 				flag_nextgap = false
 			end
@@ -560,6 +563,30 @@ function GoldenRatioSolver(
 			)
 		end
 		count += 1
+	end
+
+	minCost, index = findmin(valueList)
+	minTsList = TsIndexListMatirx[:, index]
+
+	return minCost, minTsList
+end
+
+function ExhaustiveSolver(
+	nT::Int,
+	nt::Int,
+	C::Array{Float64, 3},
+)
+	# 初始化黄金分割法
+	valueList = zeros(nT)
+	jList = 1:nT
+	TsIndexListMatirx = zeros(Int, nt, nT)
+	for j in jList
+		temp1, temp2 = dpSolve(
+			VaryLoadVaryArea();
+			C = C,
+			j = j,
+		)
+		valueList[j], TsIndexListMatirx[:, j] = temp1, temp2
 	end
 
 	minCost, index = findmin(valueList)
