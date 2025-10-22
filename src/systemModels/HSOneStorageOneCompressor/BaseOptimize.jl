@@ -62,8 +62,8 @@ Return flag and COPh1,COPh2,COPh3 and COPOverlap(leap)
 function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool},TsStart::Real,TsEnd::Real,params::SystemParameters,sysVariables::SystemVariables)
     TsMid = 0.5*(TsStart+TsEnd)
     # delta[1] mode 2 can work with mode 1 and 3
-    # delta[2] mode 3 can work
-    delta=[TsMid+params.dT>=params.Tuse,TsMid>=params.ThMax]
+    # delta[2] mode 3 can't work
+    delta=[TsMid+params.dT>=params.Tuse,TsMid+params.dT>=params.ThMax]
     # Check if status valid by temperature
     if !(x1+x2<=1+delta[1] &&
         x2+x3<=1 &&
@@ -148,22 +148,31 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
     
     ThMax = params.ThMax
     Tuse = params.Tuse
-
-    if (TsStart-Tuse)*(TsEnd-Tuse)<0
-        dt1=dt*(Tuse-TsStart)/(TsEnd-TsStart)
+        
+    if TsStart<Tuse-params.dT<TsEnd
+        dt1=dt*(Tuse-params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
-        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,Tuse,dt1,params,sysVariables)
-        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(Tuse,TsEnd,dt2,params,sysVariables)
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,Tuse-params.dT,dt1,params,sysVariables)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(Tuse-params.dT,TsEnd,dt2,params,sysVariables)
         return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
     end
 
-    if (TsStart-ThMax)*(TsEnd-ThMax)<0
-        dt1=dt*(ThMax-TsStart)/(TsEnd-TsStart)
+    if TsStart>Tuse+params.dT>TsEnd
+        dt1=dt*(Tuse+params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
-        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,ThMax,dt1,params,sysVariables)
-        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(ThMax,TsEnd,dt2,params,sysVariables)
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,Tuse+params.dT,dt1,params,sysVariables)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(Tuse+params.dT,TsEnd,dt2,params,sysVariables)
         return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
     end
+
+    if (TsStart+params.dT-ThMax)*(TsEnd+params.dT-ThMax)<0
+        dt1=dt*(ThMax-params.dT-TsStart)/(TsEnd-TsStart)
+        dt2=dt-dt1
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,ThMax-params.dT,dt1,params,sysVariables)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(ThMax-params.dT,TsEnd,dt2,params,sysVariables)
+        return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
+    end
+    
 
     # 解构常量
     @unpackParameters(params)

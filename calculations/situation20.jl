@@ -4,7 +4,8 @@ using HeatPumpWithStorageSystem
 using DataFrames, CSV
 
 #=
-全天工作
+params放到顶层
+增加结构测试
 =#
 
 struct CaseList
@@ -390,11 +391,11 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 
 			PLowList + PHighList + PPumpList - P1ListGo - P3ListGo - P2ListGo
 
-			dfOperation[!, :蓄热储入功率反馈] = (minTsListGo[2:end] - minTsListGo[1:end-1]) * cpm_h / dt
+			#dfOperation[!, :蓄热储入功率反馈] = (minTsListGo[2:end] - minTsListGo[1:end-1]) * cpm_h / dt
 
-			dfOperation[!, :蓄热储入功率计算] = P3ListGo .* COPOverlapList + PeListGo - P2ListGo .* (COPh2List .- 1)
+			#dfOperation[!, :蓄热储入功率计算] = P3ListGo .* COPOverlapList + PeListGo - P2ListGo .* (COPh2List .- 1)
 
-			dfOperation[!, :蓄热储入功率反馈误差] = dfOperation[!, :蓄热储入功率反馈] - dfOperation[!, :蓄热储入功率计算]
+			#dfOperation[!, :蓄热储入功率反馈误差] = dfOperation[!, :蓄热储入功率反馈] - dfOperation[!, :蓄热储入功率计算]
 
 			dfOperation[!, :时段电费] = realCostListGo[1:nt]
 
@@ -522,7 +523,7 @@ begin
 	)
 
 	# 系数
-	heatPumpServiceCoff = 1.0
+	heatPumpServiceCoff = 0.0
 	maxCOP = 21.0# 最大COP
 	eta_s = 0.7# 绝热效率
 	workingStartHour = 0                # 生产开始时间

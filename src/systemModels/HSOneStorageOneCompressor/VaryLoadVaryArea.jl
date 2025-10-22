@@ -394,7 +394,31 @@ function generateAndSolve(::T, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatio
 		## 动态规划求解
 		cost, TsIndex = ExhaustiveSolver(nT, nt, C)
 		TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
+		#=
+		for i ∈ 1:nt-1
+			CSV.write(joinpath(pwd(), "test", "persionalTest", "看看C", "C_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],C[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
+			#println("看看C", "C_$(i).csv")
+		end
+		for i ∈ 1:nt-1
+			CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P1", "P1_$(i).csv"), 
+			DataFrame(hcat(TsMatrix[:, i],P1Matrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
+			#println("看看P1", "P1_$(i).csv")
+		end
+		for i ∈ 1:nt-1
+			CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P2", "P2_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],P2Matrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
+			#println("看看P2", "P2_$(i).csv")
+		end
+		for i ∈ 1:nt-1
+			CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P3", "P3_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],P3Matrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
+			#println("看看P3", "P3_$(i).csv")
+		end
+		for i ∈ 1:nt-1
+			CSV.write(joinpath(pwd(), "test", "persionalTest", "看看Pe", "Pe_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],PeMatrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
+			#println("看看Pe", "Pe_$(i).csv")
+		end
 
+		CSV.write(joinpath(pwd(), "test", "persionalTest", "看看TsIndex和TsList", "Ts.csv"), DataFrame(:TsIndex=>TsIndex, :TsList=>TsList))
+		=#
 		# 验证更新首尾是否一致
 		if TsList[1] != TsList[end]
 			println("""
@@ -491,7 +515,7 @@ function dpSolve(::VaryLoadVaryArea;
 	TsIndexList[nt+1] = j
 	#println("begin nt=",nt," j=",j)
 	for i in nt:-1:2
-		# println(i," ",TsIndexList[i+1])
+		#println(i," ",j," ",TsIndexList[i+1])
 		TsIndexList[i] = TsTransitionMatrix[TsIndexList[i+1], i]
 	end
 	TsIndexList[1] = j
