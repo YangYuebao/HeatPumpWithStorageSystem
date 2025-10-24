@@ -17,16 +17,6 @@ struct PressedWaterDoubleStorage <: EnergySystem end# 双蓄热系统
 struct PressedWaterDoubleStorageSimplified <: EnergySystem end# 双蓄热系统，简化了管路
 struct PressedWaterOneStorageOneCompressor <: EnergySystem end# 蓄热系统，只有一个压缩机
 
-abstract type OOTest <: EnergySystem end
-struct OO000 <: OOTest end
-struct OO001 <: OOTest end
-struct OO010 <: OOTest end
-struct OO011 <: OOTest end
-struct OO100 <: OOTest end
-struct OO101 <: OOTest end
-struct OO110 <: OOTest end
-struct OO111 <: OOTest end
-
 
 
 export HeatPumpStoragePhaseChange,
@@ -35,8 +25,7 @@ export HeatPumpStoragePhaseChange,
 	PressedWaterDoubleStorageSimplified,
 	PressedWaterDoubleStorageOneCompressor,
 	PressedWaterOneStorageOneCompressor,
-	OOTest,
-  OO000, OO001, OO010, OO011, OO100, OO101
+	SystemStructure,RecycleStruct
 
 abstract type SystemObjectiveType end
 struct MinimizeCost <: SystemObjectiveType end# 最小化成本

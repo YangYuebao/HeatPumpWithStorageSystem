@@ -9,6 +9,7 @@ params放到顶层
 =#
 
 struct CaseList
+	sysStructList::Vector{SystemStructure}
 	orList::Vector{OverlapRefrigerant}
 	TuseList::Vector{Float64}
 	heatStorageCapacityList::Vector{Float64}
@@ -32,20 +33,20 @@ struct CaseParameters
 	Tsmax::Float64
 	dTRecycleSupply::Float64
     dTRecycleBackward::Float64
-    sysStruct::SystemStructure
+
 	dT::Float64
 	dt::Float64
 	smoother::Float64
-	CaseParameters(; hourlyTariff, Tair, heatConsumptionPower, heatPumpServiceCoff, maxCOP, eta_s, workingStartHour, workingHours, TWaste, TCompressorIn, maxTcHigh, dT_EvaporationStandard, Tsmin,Tsmax,dTRecycleSupply, dTRecycleBackward, sysStruct, dT, dt, smoother) = new(
+	CaseParameters(; hourlyTariff, Tair, heatConsumptionPower, heatPumpServiceCoff, maxCOP, eta_s, workingStartHour, workingHours, TWaste, TCompressorIn, maxTcHigh, dT_EvaporationStandard, Tsmin,Tsmax,dTRecycleSupply, dTRecycleBackward,  dT, dt, smoother) = new(
 		hourlyTariff, Tair, heatConsumptionPower,
-		heatPumpServiceCoff, maxCOP, eta_s, workingStartHour, workingHours, TWaste, TCompressorIn, maxTcHigh, dT_EvaporationStandard, Tsmin,Tsmax,dTRecycleSupply,dTRecycleBackward,sysStruct, dT, dt, smoother
+		heatPumpServiceCoff, maxCOP, eta_s, workingStartHour, workingHours, TWaste, TCompressorIn, maxTcHigh, dT_EvaporationStandard, Tsmin,Tsmax,dTRecycleSupply,dTRecycleBackward, dT, dt, smoother
 	)
 end
 
 function makedir_calculate(situation::String, caseList::CaseList)
 	overlapRefrigerantList = caseList.orList
 	TuseList = caseList.TuseList
-	heatStorageCapacityList = caseList.heatStorageCapacityList
+	sysStructList = caseList.sysStructList
 	# 先生成路径
 	filePath0 = joinpath(pwd(), "calculations", situation)
 	if !isdir(filePath0)
@@ -55,21 +56,28 @@ function makedir_calculate(situation::String, caseList::CaseList)
 	if !isdir(filePath0)
 		mkdir(filePath0)
 	end
-	for or in overlapRefrigerantList
-		filePathOr = joinpath(filePath0, or.refrigerant)# 存放一个工质的所有计算数据
-		if !isdir(filePathOr)
-			mkdir(filePathOr)
+
+	for sysStruct in sysStructList
+		filePath1 = joinpath(filePath0, sysStruct.structName)
+		if !isdir(filePath1)
+			mkdir(filePath1)
 		end
-		# 存放不同温度的经济性指标：工作时长,蓄热时长,承压水体积,低温热泵总功率,高温热泵总功率,电加热功率,每天运行费用,总电度
-		filePathEconomic = joinpath(filePathOr, "economic")
-		if !isdir(filePathEconomic)
-			mkdir(filePathEconomic)
-		end
-		for Tuse in TuseList
-			# 存放系统的运行参数
-			filePathTuse = joinpath(filePathOr, "Tuse_" * string(Tuse))
-			if !isdir(filePathTuse)
-				mkdir(filePathTuse)
+		for or in overlapRefrigerantList
+			filePathOr = joinpath(filePath1, or.refrigerant)# 存放一个工质的所有计算数据
+			if !isdir(filePathOr)
+				mkdir(filePathOr)
+			end
+			# 存放不同温度的经济性指标：工作时长,蓄热时长,承压水体积,低温热泵总功率,高温热泵总功率,电加热功率,每天运行费用,总电度
+			filePathEconomic = joinpath(filePathOr, "economic")
+			if !isdir(filePathEconomic)
+				mkdir(filePathEconomic)
+			end
+			for Tuse in TuseList
+				# 存放系统的运行参数
+				filePathTuse = joinpath(filePathOr, "Tuse_" * string(Tuse))
+				if !isdir(filePathTuse)
+					mkdir(filePathTuse)
+				end
 			end
 		end
 	end
@@ -79,6 +87,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 	overlapRefrigerantList = caseList.orList
 	TuseList = caseList.TuseList
 	heatStorageCapacityList = caseList.heatStorageCapacityList
+	sysStructList = caseList.sysStructList
 	hourlyTariff = caseParameters.hourlyTariff
 	Tair = caseParameters.Tair
 	heatConsumptionPower = caseParameters.heatConsumptionPower
@@ -95,7 +104,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 	Tsmax = caseParameters.Tsmax
 	dTRecycleSupply=caseParameters.dTRecycleSupply
 	dTRecycleBackward=caseParameters.dTRecycleBackward
-	sysStruct=caseParameters.sysStruct
+
 
 	# 计算参数
 	dT = caseParameters.dT
@@ -105,9 +114,6 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 	smoother = caseParameters.smoother
 
 	nt = Int(24 / dt + 1)
-
-	# 总算例数
-	totalCalculationTime = length(overlapRefrigerantList) * length(heatStorageCapacityList) * length(TuseList)
 
 	COPWater = getCOP(
 		TCompressorIn,# 蒸发温度下限,这里是实际设计中的蒸发冷凝温度界限
@@ -124,7 +130,17 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 
 	count = 0
 
-	calcuateLists = [(or, Tuse, heatStorageCapacity) for or in overlapRefrigerantList for Tuse in TuseList for heatStorageCapacity in heatStorageCapacityList]
+	calcuateLists = [
+		(sysStruct, or, Tuse, heatStorageCapacity) 
+		for sysStruct in sysStructList 
+		for or in overlapRefrigerantList 
+		for Tuse in TuseList 
+		for heatStorageCapacity in heatStorageCapacityList
+	]
+
+	# 总算例数
+	totalCalculationTime = length(calcuateLists)
+	println("总算例数：$totalCalculationTime")
 
 	COPOverlapFunctionDict = Dict(or.refrigerant => getOverlapCOP_fixMidTemperature(
 		or,
@@ -148,14 +164,10 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 	)
 
 	# 多线程计算
-	#@sync 
-	for (or, Tuse, heatStorageCapacity) in calcuateLists
-		#Threads.@spawn 
-		begin
+	@sync for (sysStruct, or, Tuse, heatStorageCapacity) in calcuateLists
+		Threads.@spawnat :any begin
 
-			filePathOr = joinpath(pwd(), "calculations", situation, "WorkAllDay", or.refrigerant)
-			filePathEconomic = joinpath(filePathOr, "economic")
-
+			filePathOr = joinpath(pwd(), "calculations", situation, "WorkAllDay", sysStruct.structName, or.refrigerant)
 
 			# 复叠循环COP
 			COPOverlapFunction = COPOverlapFunctionDict[or.refrigerant]
@@ -282,7 +294,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 					TairList[i],
 					TWaste,
 				)
-				cost_test, flag_test, P1_test, P2_test, P3_test, Pe_test = getMinimumCost_MILP(minTsListGo[i], minTsListGo[i+1], dt, params, sysVariables)
+				cost_test, flag_test, P1_test, P2_test, P3_test, Pe_test = getMinimumCost(minTsListGo[i], minTsListGo[i+1], dt, params, sysVariables)
 
 				if !flag_test
 					println(caseName, "第$(i)个时间段有误")
@@ -417,6 +429,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 end
 
 function dataCollect(situation::String, caseParameters::CaseParameters, caseList::CaseList, TStorageMax::Real, cp_cw::Real)
+	sysStructList = caseList.sysStructList
 	overlapRefrigerantList = caseList.orList
 	TuseList = caseList.TuseList
 	heatStorageCapacityList = caseList.heatStorageCapacityList
@@ -444,59 +457,61 @@ function dataCollect(situation::String, caseParameters::CaseParameters, caseList
 	# 数据整理
 	column_names_temperature = vcat("蓄热容量", string.(TuseList) .* "℃")
 	column_names_eco = string.([:工作时长, :蓄热时长, :承压水体积, :低温热泵总功率, :高温热泵总功率, :电加热功率, :每天运行费用, :总电度])
-	for or in overlapRefrigerantList
-		filePathOr = joinpath(pwd(), "calculations", situation, "WorkAllDay", or.refrigerant)
-		filePathEconomic = joinpath(filePathOr, "economic")
-		dfCost = DataFrame("蓄热容量" => heatStorageCapacityList)# 不同用热和蓄热的运行成本
-		for Tuse in TuseList
-			filePathTuse = joinpath(filePathOr, "Tuse_" * string(Tuse))
+	for sysStruct in sysStructList
+		for or in overlapRefrigerantList
+			filePathOr = joinpath(pwd(), "calculations", situation, "WorkAllDay",sysStruct.structName, or.refrigerant)
+			filePathEconomic = joinpath(filePathOr, "economic")
+			dfCost = DataFrame("蓄热容量" => heatStorageCapacityList)# 不同用热和蓄热的运行成本
+			for Tuse in TuseList
+				filePathTuse = joinpath(filePathOr, "Tuse_" * string(Tuse))
 
-			dfEconomic = DataFrame([(col => Float64[]) for col in column_names_eco]...)# 经济性指标
-			for heatStorageCapacity in heatStorageCapacityList
-				filePath = joinpath(filePathTuse, string(Tuse) * "_" * string(heatStorageCapacity) * ".csv")
-				if isfile(filePath)
-					df = CSV.read(filePath, DataFrame)
-					#println("正在处理文件：", filePath)
-					cpm_h = heatStorageCapacity / (TStorageMax - Tuse)
-					storageTankMass = cpm_h / cp_cw * 3600#kg	蓄热水质量
-					storageTankVolume = storageTankMass / 900#m^3 蓄热罐体积
-					PLowList = df[!, :低温热泵功率]
-					PHighList = df[!, :水蒸气压缩机功率]
-					PeList = df[!, :电加热储热供热功率]
-					costList = df[!, :时段电费]
+				dfEconomic = DataFrame([(col => Float64[]) for col in column_names_eco]...)# 经济性指标
+				for heatStorageCapacity in heatStorageCapacityList
+					filePath = joinpath(filePathTuse, string(Tuse) * "_" * string(heatStorageCapacity) * ".csv")
+					if isfile(filePath)
+						df = CSV.read(filePath, DataFrame)
+						#println("正在处理文件：", filePath)
+						cpm_h = heatStorageCapacity / (TStorageMax - Tuse)
+						storageTankMass = cpm_h / cp_cw * 3600#kg	蓄热水质量
+						storageTankVolume = storageTankMass / 900#m^3 蓄热罐体积
+						PLowList = df[!, :低温热泵功率]
+						PHighList = df[!, :水蒸气压缩机功率]
+						PeList = df[!, :电加热储热供热功率]
+						costList = df[!, :时段电费]
 
 
-					PLowMAX = maximum(PLowList)
-					PHighMAX = maximum(PHighList)
+						PLowMAX = maximum(PLowList)
+						PHighMAX = maximum(PHighList)
 
-					push!(dfEconomic, [
-						workingHours,
-						heatStorageCapacity,
-						storageTankVolume,
-						PLowMAX,
-						PHighMAX,
-						maximum(PeList),
-						sum(costList),
-						sum(PLowList + PHighList + PeList) * dt,
-					])
+						push!(dfEconomic, [
+							workingHours,
+							heatStorageCapacity,
+							storageTankVolume,
+							PLowMAX,
+							PHighMAX,
+							maximum(PeList),
+							sum(costList),
+							sum(PLowList + PHighList + PeList) * dt,
+						])
 
+					end
 				end
+
+				sort!(dfEconomic, "蓄热时长")
+				CSV.write(joinpath(filePathEconomic, "经济环境指标" * string(Tuse) * "℃.csv"), round.(dfEconomic, digits = 5))
+
+				dfCost[!, string(Tuse)*"℃"] = dfEconomic[:, "每天运行费用"]
 			end
-
-			sort!(dfEconomic, "蓄热时长")
-			CSV.write(joinpath(filePathEconomic, "经济环境指标" * string(Tuse) * "℃.csv"), round.(dfEconomic, digits = 5))
-
-			dfCost[!, string(Tuse)*"℃"] = dfEconomic[:, "每天运行费用"]
+			select!(dfCost, column_names_temperature)
+			CSV.write(joinpath(filePathOr, "summary.csv"), round.(dfCost, digits = 5))
 		end
-		select!(dfCost, column_names_temperature)
-		CSV.write(joinpath(filePathOr, "summary.csv"), round.(dfCost, digits = 5))
 	end
 end
 
 #2小时20分钟
 # 2025年3月17日3时开始计算
 
-situation = "situation20_1"
+situation = "situation21_2"
 #常数
 begin
 	hourlyTariff = ones(48) * 0.7393
@@ -541,7 +556,6 @@ begin
 	Tsmax = 220.0
 	dTRecycleSupply=5.0
     dTRecycleBackward=5.0
-    sysStruct=RecycleStruct(0,0,0)
 
 	# 计算参数
 	dT = 0.05
@@ -552,6 +566,7 @@ begin
 end
 #变量
 begin
+	sysStructList=[RecycleStruct(i,j,k) for i in 0:1 for j in 0:1 for k in 0:1]
 	# 可调参数：循环工质、用热温度、蓄热容量、热泵服务系数、电锅炉服务系数、中间级温度、废热温度
 	overlapRefrigerantList = [
 		NH3_Water,
@@ -560,10 +575,10 @@ begin
 
 	# 热容的计算列表
 	heatStorageCapacityList = 0.0:1.0:10.0
-	heatStorageCapacityList = [3.0]
+	#heatStorageCapacityList = [3.0]
 	# 用热温度的计算列表
 	TuseList = 130.0:10.0:180.0
-	TuseList = [170.0]
+	#TuseList = [170.0]
 end
 
 caseParameters = CaseParameters(;
@@ -582,7 +597,6 @@ caseParameters = CaseParameters(;
 	Tsmax = Tsmax,
 	dTRecycleSupply=dTRecycleSupply,
 	dTRecycleBackward=dTRecycleBackward,
-	sysStruct=sysStruct,
 
 	# 计算参数
 	dT = dT,
@@ -590,6 +604,7 @@ caseParameters = CaseParameters(;
 	smoother = smoother,
 )
 caseList = CaseList(
+	sysStructList,
 	overlapRefrigerantList,
 	TuseList,
 	heatStorageCapacityList,

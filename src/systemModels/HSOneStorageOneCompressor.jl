@@ -1,4 +1,33 @@
 
+"""
+系统结构形式
+
+第一位表示是否允许蓄热罐和热泵同时供热（当蓄热温度高于用热温度）
+第二位表示是否开启从蓄热储热到用热的热回收
+第三位表示是否开启从用热冷凝水到蓄热罐的热回收
+"""
+abstract type SystemStructure <: EnergySystem end
+struct RecycleStruct <: SystemStructure 
+	heatpumpWithStorage::Bool
+	toUserRecycle::Bool
+	toStorageRecycle::Bool
+end
+
+function Base.getproperty(rs::RecycleStruct, s::Symbol)
+	if s === :structName
+		temp = [
+			"struct", 
+			Int(rs.heatpumpWithStorage),
+			Int(rs.toUserRecycle),
+			Int(rs.toStorageRecycle)
+		]
+		return join(temp,"_")
+	else
+		return getfield(rs,s)
+	end
+end
+
+
 abstract type FunctionGenerateMethod end
 struct BackwardGenerate <: FunctionGenerateMethod end
 struct LinearGenerate <: FunctionGenerateMethod end
@@ -90,6 +119,7 @@ function generateSystemCoff(::T;
 	Tair::Vector = fill(25.0,24),          # 外部环境温度
 	Tuse::Real = 120.0,                     # 工厂使用温度
 	heatStorageCapacity::Real = 6.0,        # 蓄热量kWh(承压水蓄热)
+	TstorageTankMin::Real = 120.0,			# 蓄热罐的最小温度
 	TstorageTankMax::Real = 220.0,          # 蓄热罐的最高温度
 	maxheatStorageInputHour::Real = 4,      # 蓄热充满时长
 	dT_EvaporationStandard::Real = 5.0,# 全蒸温差
@@ -98,7 +128,7 @@ function generateSystemCoff(::T;
 	workingHours::Int = 16,                 # 每日工作小时数
 	heatPumpServiceCoff::Real = 1.2,        # 热泵功率服务系数
 	hourlyTariff::Vector = fill(0.7, 24),   # 电价向量
-) where {T <: Union{OOTest, PressedWaterOneStorageOneCompressor}}
+) where {T <: Union{SystemStructure, PressedWaterOneStorageOneCompressor}}
 	# COP函数外部生成
 	# 计算工作时间
 	temp = workingHours
@@ -156,7 +186,7 @@ function generateSystemCoff(::T;
 	dT_EvaporationStandard,
 	latentHeat, cp_cw, cp_cs,
 	TcChangeToElec, TWaste,
-	cpm_h,
+	cpm_h,TstorageTankMin,
 	TstorageTankMax, PheatPumpMax, PelecHeatMax,
 	PWaterCompressorMax
 end

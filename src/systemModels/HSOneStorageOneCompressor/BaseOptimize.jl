@@ -10,13 +10,17 @@ struct SystemParameters	# 系统常量
     COPWater::Function      # 水COP计算函数
     PhMax::Real          # 热功率最大值
     PeMax::Real          # 电功率最大值
-    cp_cw::Real
-    Tsmin::Real
-    Tsmax::Real
+    cp_cw::Real          # 液态水比热容
+    latentHeat::Real     # 汽化潜热
+    Tsmin::Real          # 蓄热最低温度
+    Tsmax::Real          # 蓄热最高温度
+    dTRecycleSupply::Real   # 蓄热到用热热回收最小温差
+    dTRecycleBackward::Real # 用热到蓄热热回收最小温差
+    sysStruct::SystemStructure  # 系统结构
     
     SystemParameters(;
-        ThMax::Real,Tuse::Real,dT::Real,TCompressorIn::Real,cpm::Real,COPWater::Function,PhMax::Real,PeMax::Real,cp_cw::Real,Tsmin::Real,Tsmax::Real
-    )=new(ThMax,Tuse,dT,TCompressorIn,cpm,COPWater,PhMax,PeMax,cp_cw,Tsmin,Tsmax)
+        ThMax::Real,Tuse::Real,dT::Real,TCompressorIn::Real,cpm::Real,COPWater::Function,PhMax::Real,PeMax::Real,cp_cw::Real,latentHeat::Real,Tsmin::Real,Tsmax::Real,dTRecycleSupply::Real,dTRecycleBackward::Real,sysStruct::SystemStructure
+    )=new(ThMax,Tuse,dT,TCompressorIn,cpm,COPWater,PhMax,PeMax,cp_cw,latentHeat,Tsmin,Tsmax,dTRecycleSupply,dTRecycleBackward,sysStruct)
 end
 
 macro unpackParameters(param_name)
@@ -31,8 +35,12 @@ macro unpackParameters(param_name)
         PhMax = $(param_name).PhMax
         PeMax = $(param_name).PeMax
         cp_cw = $(param_name).cp_cw
+        latentHeat = $(param_name).latentHeat
         Tsmin = $(param_name).Tsmin
         Tsmax = $(param_name).Tsmax
+        dTRecycleSupply = $(param_name).dTRecycleSupply
+        dTRecycleBackward = $(param_name).dTRecycleBackward
+        sysStruct = $(param_name).sysStruct
     end
     # 取消卫生宏。卫生宏为防止与空间中变量名冲突会进行重命名。esc可以取消这一过程
     return esc(ex)
@@ -186,8 +194,20 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
     P3Value=0.0
     PeValue=0.0
 
+    recycle=[
+        sysStruct.heatpumpWithStorage,
+	    sysStruct.toUserRecycle,
+	    sysStruct.toStorageRecycle
+    ]
+    Ts=0.5*(TsStart+TsEnd)
+    recycleValid = [Ts + dT - Tuse >= dTRecycleSupply, Tuse - Ts - dT >= dTRecycleBackward]
+
     PsView=cpm/dt*(TsEnd-TsStart)# 蓄热罐温度变化示数功率（不是真实的）
     for (x1,x2,x3) in allowedStatus
+        if x1 == 1 && x2 == 1 && recycle[1] ==0
+            #不允许同时运行
+            continue
+        end
         flag,coph1,coph2,coph3,copoverlap = getCOPbyMode(x1,x2,x3,TsStart,TsEnd,params,sysVariables)
 
         if !flag
@@ -201,7 +221,7 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
         @variable(model, Pe[1:2]>=0)#供热电加热功率与储热电加热功率
 
         set_start_value(P[1], PsView*x1*coph1/copoverlap)
-        #=
+        
         if x1 == 0
             @constraint(model, P[1] == 0.0)  # 显式固定为0，避免任意值
         end
@@ -211,11 +231,10 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
         if x3 == 0
             @constraint(model, P[3] == 0.0)
         end
-        =#
 
         # 测试约束
-        @constraint(model,P[1]*x1*coph1+P[2]*x2*coph2+Pe[1]>=load)
-        @constraint(model,P[3]*x3*coph3-P[2]*x2*(coph2-1)+Pe[2]==PsView)
+        @constraint(model,P[1]*x1*coph1+P[2]*x2*coph2+Pe[1]+recycle[2]*recycleValid[1]*cp_cw/latentHeat*(Ts+dT-Tuse)*P[3]*x3*coph3>=load)
+        @constraint(model,P[3]*x3*coph3-P[2]*x2*(coph2-1)+Pe[2]+recycle[3]*recycleValid[2]*cp_cw/latentHeat*load*(Tuse - Ts - dT)>=PsView)
 
         # 变量范围约束
         @constraint(model,sum(Pe[i] for i in 1:2)<=PeMax)
@@ -256,24 +275,32 @@ function getMinimumCost_MILP(TsStart::Real,TsEnd::Real,dt::Real,params::SystemPa
     
     ThMax = params.ThMax
     Tuse = params.Tuse
-
-    if (TsStart-Tuse)*(TsEnd-Tuse)<0
-        dt1=dt*(Tuse-TsStart)/(TsEnd-TsStart)
+        
+    if TsStart<Tuse-params.dT<TsEnd
+        dt1=dt*(Tuse-params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
-        C1, flag1, P11, P21, P31,Pe1=getMinimumCost_MILP(TsStart,Tuse,dt1,params,sysVariables::SystemVariables)
-        C2, flag2, P12, P22, P32,Pe2=getMinimumCost_MILP(Tuse,TsEnd,dt2,params,sysVariables::SystemVariables)
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost_MILP(TsStart,Tuse-params.dT,dt1,params,sysVariables)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost_MILP(Tuse-params.dT,TsEnd,dt2,params,sysVariables)
         return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
     end
 
-    if (TsStart-ThMax)*(TsEnd-ThMax)<0
-        dt1=dt*(ThMax-TsStart)/(TsEnd-TsStart)
+    if TsStart>Tuse+params.dT>TsEnd
+        dt1=dt*(Tuse+params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
-        C1, flag1, P11, P21, P31,Pe1=getMinimumCost_MILP(TsStart,ThMax,dt1,params,sysVariables::SystemVariables)
-        C2, flag2, P12, P22, P32,Pe2=getMinimumCost_MILP(ThMax,TsEnd,dt2,params,sysVariables::SystemVariables)
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost_MILP(TsStart,Tuse+params.dT,dt1,params,sysVariables)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost_MILP(Tuse+params.dT,TsEnd,dt2,params,sysVariables)
         return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
     end
 
-    # 解构参数以便使用
+    if (TsStart+params.dT-ThMax)*(TsEnd+params.dT-ThMax)<0
+        dt1=dt*(ThMax-params.dT-TsStart)/(TsEnd-TsStart)
+        dt2=dt-dt1
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost_MILP(TsStart,ThMax-params.dT,dt1,params,sysVariables)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost_MILP(ThMax-params.dT,TsEnd,dt2,params,sysVariables)
+        return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
+    end
+
+    # 解构常量
     @unpackParameters(params)
     @unpackVariables(sysVariables)
     #=
@@ -292,48 +319,45 @@ function getMinimumCost_MILP(TsStart::Real,TsEnd::Real,dt::Real,params::SystemPa
     coph1=COPWater(TCompressorIn,Tuse)# mode 1
     coph2=COPWater(Ts-dT,Tuse)# mode 2
     coph3=COPWater(TCompressorIn,Ts+dT)# mode 3
-    #coph4=COPWater(TCompressorIn,max(Tuse,Ts+dT))
+    coph4=min(coph1,coph3)
     # set condensor temperature as the higher one in Tuse and Ts+dT 
-    coph1=coph3=min(coph1,coph3)
-    copoverlap=coph1*COPl/(coph1+COPl-1)
-
     Ts=0.5*(TsStart+TsEnd)
     Mp=2.0
-    Mt=150.0
+
+
     model = Model(HiGHS.Optimizer)
+    set_silent(model)   # 取消显示
+    # 热回收模式
+    recycle=[
+        sysStruct.heatpumpWithStorage,
+	    sysStruct.toUserRecycle,
+	    sysStruct.toStorageRecycle
+    ]
 
-    # 取消显示
-    set_silent(model)
+    @variable(model, x[1:3], Bin)   # 三个模式是否开启
+    @variable(model, P[1:3]>=0)     # 各个模式的功率
+    @variable(model, Pe[1:2]>=0)    # 供热电加热功率与储热电加热功率
 
-    @variable(model, x[1:3], Bin)#三个模式是否开启
+    delta=[Ts>=Tuse,Ts>=ThMax]      # 系统运行状态描述
 
-    #=
-    set_start_value(x[1], 1)
-    set_start_value(x[2], 0)
-    set_start_value(x[3], 0)
-    =#
+    # 热回收状态描述
+    # 从蓄热到用热端，温度为Ts+dT,目标温度为Tuse,热回收温差为 dTRecycleSupply
+    # 从用热到蓄热端，温度为Tuse,目标温度为Ts+dT,热回收温差为 dTRecycleBackward
+    recycleValid = [Ts + dT - Tuse >= dTRecycleSupply, Tuse - Ts - dT >= dTRecycleBackward]
 
-    @variable(model, P[1:3]>=0)#各个模式的功率
-    @variable(model, Pe[1:2]>=0)#供热电加热功率与储热电加热功率
+    @variable(model, y[1:3]>=0) #辅助变量 y[i]=x[i]*P[i]
+    @variable(model,y1x3>=0)    #y1x3=x[1]*x[3]*P[1]
+    @variable(model,y3x1>=0)    #y3x1=x[1]*x[3]*P[3]
+    @variable(model,y1cop13>=0) #真正的模式1功率
+    @variable(model,y3cop13>=0) #真正的模式3功率
 
-    #=
-    @variable(model, delta[1:2], Bin)#表示蓄热温度与用热温度、切换温度的关系
-
-    set_start_value(delta[1], Ts>=Tuse)
-    set_start_value(delta[2], Ts>=ThMax)
-    =#
-
-    delta=[Ts>=Tuse,Ts>=ThMax]
-
-    @variable(model, y[1:3]>=0)#辅助变量
+    #模式1的总功率，水蒸气压缩机加低温热泵
+    @variable(model,mode1Power>=0)
+    @variable(model,mode3Power>=0)  #模式3的总功率
 
     # 状态约束
-    @constraint(model, x[1]+x[2]<=1+delta[1])
+    @constraint(model, x[1]+x[2]<=1+recycle[1]*delta[1])
     @constraint(model, x[2]+x[3]<=1)
-    #@constraint(model, Mt*delta[1]>=Ts-Tuse-dT)#蓄热温度与用热温度关系
-    #@constraint(model, Mt*delta[1]<=Tuse-Ts-dT+Mt)
-    #@constraint(model, Mt*delta[2]>=Ts-ThMax)#蓄热温度与热泵最高温度关系
-    #@constraint(model, Mt*delta[2]<=Ts-ThMax+Mt)
     @constraint(model, x[3]<=1-delta[2])#蓄热温度超过热泵最大温度时不用热泵储热
 
     # 松弛变量y[i]=x[i]*P[i]
@@ -342,17 +366,33 @@ function getMinimumCost_MILP(TsStart::Real,TsEnd::Real,dt::Real,params::SystemPa
     @constraint(model,[i=1:3], y[i]<=Mp*x[i])
     @constraint(model,[i=1:3], y[i]>=-Mp*x[i])
 
+    @constraint(model, y1x3<=y[1]+Mp*(1-x[3]))
+    @constraint(model, y1x3>=y[1]-Mp*(1-x[3]))
+    @constraint(model, y1x3<=Mp*x[3])
+    @constraint(model, y1x3>=-Mp*x[3])
+
+    @constraint(model, y3x1<=y[3]+Mp*(1-x[1]))
+    @constraint(model, y3x1>=y[3]-Mp*(1-x[1]))
+    @constraint(model, y3x1<=Mp*x[1])
+    @constraint(model, y3x1>=-Mp*x[1])
+
+    @constraint(model, y1cop13==y[1]*coph1+(coph4-coph1)*y1x3)
+    @constraint(model, y3cop13==y[3]*coph3+(coph4-coph3)*y3x1)
+
+    @constraint(model, mode1Power == y1cop13/COPl+y[1]*(COPl-1)/COPl)
+    @constraint(model, mode3Power == y3cop13/COPl+y[3]*(COPl-1)/COPl)
+
     # 测试约束
     # 负载等号约束需要处理
-    @constraint(model,y[1]*coph1+y[2]*coph2+Pe[1]==load)
-    @constraint(model,y[3]*coph3-y[2]*(coph2-1)+Pe[2]==cpm/dt*(TsEnd-TsStart))
+    @constraint(model, y1cop13+y[2]*coph2+Pe[1]+recycle[2]*recycleValid[1]*cp_cw/latentHeat*(Ts+dT-Tuse)*y3cop13>=load)
+    @constraint(model, y3cop13-y[2]*(coph2-1)+Pe[2]+recycle[3]*recycleValid[2]*cp_cw/latentHeat*load*(Tuse - Ts - dT)>=cpm/dt*(TsEnd-TsStart))
 
     # 变量范围约束
     @constraint(model,sum(Pe[i] for i in 1:2)<=PeMax)
     @constraint(model,P[1]+P[3]<=PhMax)
 
     # 目标函数
-    @objective(model, Min, P[1]*coph1/copoverlap+P[2]+P[3]*coph3/copoverlap+Pe[1]+Pe[2])
+    @objective(model, Min, mode1Power+P[2]+mode3Power+Pe[1]+Pe[2])
 
     # 求解模型
     optimize!(model)
@@ -368,7 +408,7 @@ function getMinimumCost_MILP(TsStart::Real,TsEnd::Real,dt::Real,params::SystemPa
     end
     =#
     if !flag
-        #println("求解失败,$isFeasible,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
+        println("求解失败,$isFeasible,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
         #=
         ThMax
         Tuse::Real           # 使用温度
@@ -402,5 +442,5 @@ function getMinimumCost_MILP(TsStart::Real,TsEnd::Real,dt::Real,params::SystemPa
         return 9999.0,flag,9999.0,9999.0,9999.0,9999.0
     end
 
-    return objective_value(model)*dt,flag , value(y[1])*coph1/COPl, value(y[2]), value(y[3])*coph3/COPl,value(Pe[1]+Pe[2])
+    return objective_value(model)*dt,flag , value(mode1Power), value(y[2]), value(mode3Power),value(Pe[1]+Pe[2])
 end
