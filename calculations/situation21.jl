@@ -165,7 +165,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 
 	# 多线程计算
 	@sync for (sysStruct, or, Tuse, heatStorageCapacity) in calcuateLists
-		Threads.@spawnat :any begin
+		Threads.@spawn begin
 
 			filePathOr = joinpath(pwd(), "calculations", situation, "WorkAllDay", sysStruct.structName, or.refrigerant)
 
@@ -251,7 +251,6 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 					params = params,
 
 					TWaste = TWaste,
-					PheatPumpMax = PheatPumpMax,
 					# 求解参数
 					dT = dT,# 状态参数高温蓄热温度离散步长
 					dt = dt,# 时间步长
@@ -511,7 +510,7 @@ end
 #2小时20分钟
 # 2025年3月17日3时开始计算
 
-situation = "situation21_2"
+situation = "situation21_1"
 #常数
 begin
 	hourlyTariff = ones(48) * 0.7393
@@ -567,6 +566,8 @@ end
 #变量
 begin
 	sysStructList=[RecycleStruct(i,j,k) for i in 0:1 for j in 0:1 for k in 0:1]
+	sysStructList=[RecycleStruct(1,0,0)]
+	
 	# 可调参数：循环工质、用热温度、蓄热容量、热泵服务系数、电锅炉服务系数、中间级温度、废热温度
 	overlapRefrigerantList = [
 		NH3_Water,
@@ -575,10 +576,10 @@ begin
 
 	# 热容的计算列表
 	heatStorageCapacityList = 0.0:1.0:10.0
-	#heatStorageCapacityList = [3.0]
+	heatStorageCapacityList = [0.0,1.0]
 	# 用热温度的计算列表
 	TuseList = 130.0:10.0:180.0
-	#TuseList = [170.0]
+	TuseList = [130.0]
 end
 
 caseParameters = CaseParameters(;

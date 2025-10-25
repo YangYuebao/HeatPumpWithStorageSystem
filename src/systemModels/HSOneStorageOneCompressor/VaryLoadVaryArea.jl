@@ -166,6 +166,8 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	cpm_h = params.cpm
 	Tsmin = params.Tsmin
 	Tsmax = params.Tsmax
+	TstorageTankMax = params.Tsmax
+	TcChangeToElec = params.ThMax
 
 	Tuse::Real,# 供热蒸汽温度
 	if cpm_h == 0
@@ -197,11 +199,12 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 
 	# 先试算，温差除以时间要小于一个数，默认是10℃/1h=10
 	k_dT_to_dt = 10
-	
+	#=
 	# 生成初始解
 	begin
 		dt_test = 2 #2小时试算
 		tList = 0:dt_test:24
+		nt=length(tList)
 
 		dT_origin = dt_test * 5 #试算温度步长
 
@@ -261,20 +264,21 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		end
 		TsList[end] = TsList_test[end]
 	end
+	=#
 	
 	dT_origin = dt * k_dT_to_dt#正式计算的初始温度步长
 
 	# 开始改良解
-
 	tList = 0:dt:24# 正式计算的时间步
 
 	nTList = [3,5]
-	changedT = 10*dT
+	changedT = 64*dT
 	is_nt_changed = false
 	nT = nTList[1]# 温度步数
 	half_nT = Int((nT - 1) / 2)
 	nt = length(tList)
-	TsList = fill(Tuse, nt)
+	#TsList = fill(Tsmax, nt)
+	TsList = fill(TcChangeToElec+5.0, nt)
 	TsMatrix = zeros(nT, nt)
 
 	heatLoadList = heatConsumptionPowerFunction.(tList)
@@ -367,10 +371,12 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		end
 
 		# 精度足够后尝试改变温度步数
+		
 		if dT_origin <= changedT && !is_nt_changed
 			nT = nTList[2]
 			half_nT = Int((nT - 1) / 2)
 			TsMatrix = zeros(nT, nt)
+			TsIndex = fill(half_nT+1,nt)
 			C = zeros(nt, nT, nT)
 			P1Matrix = zeros(nt, nT, nT)
 			P2Matrix = zeros(nt, nT, nT)
@@ -378,6 +384,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			PeMatrix = zeros(nt, nT, nT)
 			is_nt_changed = true
 		end
+		
 
 		for j ∈ 1:nt #范围调整
 			if TsIndex[j] == 1 || TsIndex[j] == nT || !isStartValueValid # 温度范围要更小
@@ -404,7 +411,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			end
 		end
 		countAll += 1
-		#println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
+		println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
 	end
 
 	# if countAll==maxcount

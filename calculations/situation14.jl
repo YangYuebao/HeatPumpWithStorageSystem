@@ -119,4 +119,6 @@ tags = [
 differenct = collect(Float64.(result).-Float64.(resultMILP))
 df = DataFrame(:tags => tags,:result =>collect(result),:resultMILP => collect(resultMILP), :differenct => differenct)
 
-vscodedisplay(df)
+CSV.write(joinpath(pwd(),"calculations","situation14","test.csv"),df)
+
+#vscodedisplay(df)
