@@ -79,4 +79,9 @@ export @unpackParameters
 export SystemParameters,SystemVariables
 export getMinimumCost,getMinimumCost_MILP	#导出
 export getCOPbyMode
+
+include(joinpath(pwd(), "src", "designOptimization","operationOptimizeInterface.jl"))
+# 导出用来与设计优化联合的类型和函数
+export DesignOptimizeInput,DesignOptimizeVariables,DesignOptimizeParameters
+export generateDesignOptimizeParameters,generateOperationFunction
 end # module HeatPumpWithStorageSystem

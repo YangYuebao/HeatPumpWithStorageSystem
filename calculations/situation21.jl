@@ -8,6 +8,8 @@ params放到顶层
 增加结构测试
 =#
 
+println("线程数目：$(Threads.nthreads())")
+
 struct CaseList
 	sysStructList::Vector{SystemStructure}
 	orList::Vector{OverlapRefrigerant}
@@ -21,8 +23,10 @@ struct CaseParameters
 	heatConsumptionPower::Vector{Float64}
 
 	heatPumpServiceCoff::Float64
+
 	maxCOP::Float64
 	eta_s::Float64
+	
 	workingStartHour::Int64
 	workingHours::Int64
 	TWaste::Float64
@@ -104,6 +108,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 	Tsmax = caseParameters.Tsmax
 	dTRecycleSupply=caseParameters.dTRecycleSupply
 	dTRecycleBackward=caseParameters.dTRecycleBackward
+	maxheatStorageInputHour = 4
 
 
 	# 计算参数
@@ -164,8 +169,10 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 	)
 
 	# 多线程计算
-	@sync for (sysStruct, or, Tuse, heatStorageCapacity) in calcuateLists
-		Threads.@spawn begin
+	#@sync
+	Threads.@threads for (sysStruct, or, Tuse, heatStorageCapacity) in calcuateLists
+		#Threads.@spawn 
+		begin
 
 			filePathOr = joinpath(pwd(), "calculations", situation, "WorkAllDay", sysStruct.structName, or.refrigerant)
 
@@ -201,7 +208,7 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 				heatStorageCapacity = heatStorageCapacity,  # 蓄热量kWh(承压水蓄热)
 				TstorageTankMin = Tsmin,
 				TstorageTankMax = Tsmax,            # 蓄热罐的最高温度
-				maxheatStorageInputHour = 4,        # 蓄热充满时长
+				maxheatStorageInputHour = maxheatStorageInputHour,        # 蓄热充满时长
 				dT_EvaporationStandard = dT_EvaporationStandard,       # 全蒸温差
 				heatConsumptionPower = heatConsumptionPower,         # 每小时用热功率kW
 				workingStartHour = workingStartHour,# 生产开始时间
@@ -227,6 +234,20 @@ function main(situation::String, caseParameters::CaseParameters, caseList::CaseL
 				dTRecycleBackward = dTRecycleBackward,
 				sysStruct = sysStruct
 			)
+			println("""
+			ThMax: $(params.ThMax)
+			Tuse: $(params.Tuse)
+			dT: $(params.dT)
+			TCompressorIn: $(params.TCompressorIn)
+			cpm: $(params.cpm)
+			PhMax: $(params.PhMax)
+			PeMax: $(params.PeMax)
+			Tsmin: $(params.Tsmin)
+			Tsmax: $(params.Tsmax)
+			dTRecycleSupply: $(params.dTRecycleSupply)
+			dTRecycleBackward: $(params.dTRecycleBackward)
+			sysStruct: $(params.sysStruct)
+			""")
 
 			heatLoadList = heatConsumptionPowerFunction.(0:dt:24)
 			TairList = TairFunction.(0:dt:24)
@@ -510,7 +531,7 @@ end
 #2小时20分钟
 # 2025年3月17日3时开始计算
 
-situation = "situation21_1"
+situation = "situation21_base_result"
 #常数
 begin
 	hourlyTariff = ones(48) * 0.7393
@@ -541,7 +562,7 @@ begin
 	)
 
 	# 系数
-	heatPumpServiceCoff = 1.0
+	heatPumpServiceCoff = 0.5
 	maxCOP = 21.0# 最大COP
 	eta_s = 0.7# 绝热效率
 	workingStartHour = 0                # 生产开始时间
@@ -565,7 +586,7 @@ begin
 end
 #变量
 begin
-	sysStructList=[RecycleStruct(i,j,k) for i in 0:1 for j in 0:1 for k in 0:1]
+	#sysStructList=[RecycleStruct(i,j,k) for i in 0:1 for j in 0:1 for k in 0:1]
 	sysStructList=[RecycleStruct(1,0,0)]
 	
 	# 可调参数：循环工质、用热温度、蓄热容量、热泵服务系数、电锅炉服务系数、中间级温度、废热温度
@@ -575,17 +596,18 @@ begin
 	]
 
 	# 热容的计算列表
-	heatStorageCapacityList = 0.0:1.0:10.0
-	heatStorageCapacityList = [0.0,1.0]
+	#heatStorageCapacityList = 0.0:1.0:10.0
+	heatStorageCapacityList = [8.0]
 	# 用热温度的计算列表
-	TuseList = 130.0:10.0:180.0
-	TuseList = [130.0]
+	#TuseList = 130.0:10.0:180.0
+	TuseList = [150.0]
 end
 
 caseParameters = CaseParameters(;
 	hourlyTariff = hourlyTariff,
 	Tair = Tair,
-	heatConsumptionPower = heatConsumptionPower, heatPumpServiceCoff = heatPumpServiceCoff,
+	heatConsumptionPower = heatConsumptionPower,
+	heatPumpServiceCoff = heatPumpServiceCoff,
 	maxCOP = maxCOP,
 	eta_s = eta_s,
 	workingStartHour = workingStartHour,

@@ -169,7 +169,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	TstorageTankMax = params.Tsmax
 	TcChangeToElec = params.ThMax
 
-	Tuse::Real,# 供热蒸汽温度
+	#Tuse::Real,# 供热蒸汽温度
 	if cpm_h == 0
 		#return sum(realCostList), TsList, P1List, P2List, P3List, PeList,realCostList
 		nt = Int(24 / dt + 1)
@@ -365,7 +365,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		# 初值有问题
 		if cost > 1000
 			println("初值有问题")
-			TsList = fill(Tsmax, nt)
+			TsList = fill(TcChangeToElec+5.0, nt)
 			flag_nextgap = false
 			isStartValueValid = false
 		end
@@ -411,7 +411,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			end
 		end
 		countAll += 1
-		println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
+		#println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
 	end
 
 	# if countAll==maxcount

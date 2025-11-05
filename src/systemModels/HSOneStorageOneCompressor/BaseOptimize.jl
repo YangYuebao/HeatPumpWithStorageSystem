@@ -6,10 +6,10 @@ struct SystemParameters	# 系统常量
     Tuse::Real           # 使用温度
     dT::Real             # 温度差
     TCompressorIn::Real  # 压缩机入口温度
-    cpm::Real            # 热容质量乘积
+    cpm::Real            # 热容质量乘积,提出来
     COPWater::Function      # 水COP计算函数
-    PhMax::Real          # 热功率最大值
-    PeMax::Real          # 电功率最大值
+    PhMax::Real          # 热功率最大值,提出来
+    PeMax::Real          # 电功率最大值,提出来
     cp_cw::Real          # 液态水比热容
     latentHeat::Real     # 汽化潜热
     Tsmin::Real          # 蓄热最低温度
@@ -152,6 +152,16 @@ const allowedStatus = [
     (1,0,1)
 ]
 
+function getLPModel()
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    #各个模式的功率是P[1:3],各环节电加热功率是P[4:5]
+    @variable(model, P[1:5]>=0)
+    return model
+end
+
+const model_lp = getLPModel()
+
 function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParameters,sysVariables::SystemVariables)
     
     ThMax = params.ThMax
@@ -214,6 +224,7 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
             continue
         end
         
+        #=
         model = Model(HiGHS.Optimizer)
         set_silent(model)
 
@@ -231,7 +242,43 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
         if x3 == 0
             @constraint(model, P[3] == 0.0)
         end
+        =#
 
+        model = copy(model_lp)
+        set_optimizer(model, () -> HiGHS.Optimizer())
+        set_silent(model)
+
+        if x1 == 0
+            @constraint(model, model[:P][1] == 0.0)  # 显式固定为0，避免任意值
+        end
+        if x2 == 0
+            @constraint(model, model[:P][2] == 0.0)
+        end
+        if x3 == 0
+            @constraint(model, model[:P][3] == 0.0)
+        end
+
+        A=[
+            x1*coph1 x2*coph2 recycle[2]*recycleValid[1]*cp_cw/latentHeat*(Ts+dT-Tuse) 1.0 0.0;
+            0.0 -x2*(coph2-1) x3*coph3 0.0 1.0;
+            0.0 0.0 0.0 -1.0 -1.0;
+            -1.0 0.0 -1.0 0.0 0.0
+        ]
+        b = [
+            load,
+            PsView - recycle[3]*recycleValid[2]*cp_cw/latentHeat*load*(Tuse - Ts - dT),
+            -PeMax,
+            -PhMax
+        ]
+        c = [
+            coph1/copoverlap,
+            1.0,
+            coph3/copoverlap,
+            1.0,
+            1.0
+        ]
+
+        #=
         # 测试约束
         @constraint(model,P[1]*x1*coph1+P[2]*x2*coph2+Pe[1]+recycle[2]*recycleValid[1]*cp_cw/latentHeat*(Ts+dT-Tuse)*P[3]*x3*coph3>=load)
         @constraint(model,P[3]*x3*coph3-P[2]*x2*(coph2-1)+Pe[2]+recycle[3]*recycleValid[2]*cp_cw/latentHeat*load*(Tuse - Ts - dT)>=PsView)
@@ -239,9 +286,13 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
         # 变量范围约束
         @constraint(model,sum(Pe[i] for i in 1:2)<=PeMax)
         @constraint(model,P[1]+P[3]<=PhMax)
+        =#
 
+        # 向量化约束
+        @constraint(model,A*model[:P] - b .>= 0)
         # 目标函数
-        @objective(model, Min, P[1]*coph1/copoverlap+P[2]+P[3]*coph3/copoverlap+Pe[1]+Pe[2])
+        #@objective(model, Min, P[1]*coph1/copoverlap+P[2]+P[3]*coph3/copoverlap+Pe[1]+Pe[2])
+        @objective(model, Min,sum(c.*model[:P]))
 
         # 求解模型
         optimize!(model)
@@ -251,10 +302,10 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
             if objective_value(model)*dt < cost
                 cost = objective_value(model)*dt
                 flagAll = flag
-                P1Value = value(P[1])*coph1/copoverlap
-                P2Value = value(P[2])
-                P3Value = value(P[3])*coph3/copoverlap
-                PeValue = value(Pe[1]+Pe[2])
+                P1Value = value(model[:P][1])*coph1/copoverlap
+                P2Value = value(model[:P][2])
+                P3Value = value(model[:P][3])*coph3/copoverlap
+                PeValue = value(model[:P][4]+model[:P][5])
             end
         else
             continue
@@ -408,7 +459,7 @@ function getMinimumCost_MILP(TsStart::Real,TsEnd::Real,dt::Real,params::SystemPa
     end
     =#
     if !flag
-        println("求解失败,$isFeasible,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
+        #println("求解失败,$isFeasible,TsStart=$TsStart,TsEnd=$TsEnd,dt=$dt")
         #=
         ThMax
         Tuse::Real           # 使用温度
