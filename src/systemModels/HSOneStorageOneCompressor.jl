@@ -146,10 +146,10 @@ function generateSystemCoff(::T;
 	P1base =  maxheatPower / COP1_design
 	PheatPumpMax = P1base * heatPumpServiceCoff
 	# 电加热容量=热泵不足容量+电储热充满在对应时长下的容量
-	PelecHeatMax = maxheatPower * (
+	PelecHeatMax = max(maxheatPower * (
 		1- heatPumpServiceCoff + 
 		heatStorageCapacity / maxheatStorageInputHour
-	)
+	),0.0)
 	PWaterCompressorMax = maxheatPower/COPWater_design * heatPumpServiceCoff
 
 	# 生成需求与环境函数

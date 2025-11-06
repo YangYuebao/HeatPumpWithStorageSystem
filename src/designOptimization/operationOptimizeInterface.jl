@@ -277,10 +277,10 @@ function generateOperationFunction(designParameters::DesignOptimizeParameters,de
         COPWater_design = designParameters.COPWater(TCompressorIn,Tuse)
         TstorageTankMax = designParameters.Tsmax
         PhMax = maxheatPower/COPWater_design * heatPumpServiceCoff
-        PeMax = maxheatPower * (
+        PeMax = max(maxheatPower * (
             1- heatPumpServiceCoff + 
             heatStorageCapacity / maxheatStorageInputHour
-        )
+        ),0.0)
         cpm = heatStorageCapacity * maxheatPower / (TstorageTankMax - Tuse)
 
         params = SystemParameters(

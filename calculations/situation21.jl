@@ -597,7 +597,7 @@ begin
 
 	# 热容的计算列表
 	#heatStorageCapacityList = 0.0:1.0:10.0
-	heatStorageCapacityList = [8.0]
+	heatStorageCapacityList = [0.0]
 	# 用热温度的计算列表
 	#TuseList = 130.0:10.0:180.0
 	TuseList = [150.0]
