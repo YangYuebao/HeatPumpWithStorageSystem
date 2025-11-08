@@ -278,27 +278,62 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	half_nT = Int((nT - 1) / 2)
 	nt = length(tList)
 	#TsList = fill(Tsmax, nt)
-	TsList = fill(TcChangeToElec+5.0, nt)
 	TsMatrix = zeros(nT, nt)
 
 	heatLoadList = heatConsumptionPowerFunction.(tList)
 	TairList = TairFunction.(tList)
 	costGridList = hourlyTariffFunction.(tList)
-
-	for j ∈ 1:nt
-		TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:TsList[j]+half_nT*dT_origin
-	end
+	
 	countAll = 0
 	countSingleGap = 0
 	maxcount = 500
-	df = DataFrame()
+	#=
 	C = zeros(nt, nT, nT)
 	P1Matrix = zeros(nt, nT, nT)
 	P2Matrix = zeros(nt, nT, nT)
 	P3Matrix = zeros(nt, nT, nT)
 	PeMatrix = zeros(nt, nT, nT)
 	TsIndex = zeros(nt)
-	while dT_origin > dT && countAll < maxcount
+	=#
+
+	# 初始化初值，这一步应该调用一个模型做预测
+	TsList = fill(TcChangeToElec+5.0, nt)
+	for j ∈ 1:nt
+		TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:TsList[j]+half_nT*dT_origin
+	end
+	
+	
+
+	C, P1Matrix, P2Matrix, P3Matrix, PeMatrix = getStateTransitionCost(
+		PressedWaterOneStorageOneCompressor(),
+		VaryLoadVaryArea();
+		COPOverlap = COPOverlap,
+		COPLowFunction = COPLowFunction,
+		heatLoad = heatLoadList,# 热负荷
+		Tair = TairList,# 外部环境温度
+		costGrid = costGridList,# 电网电价
+		# 总循环参数
+		TWaste = TWaste,# 废热回收蒸发器温度
+		params = params,
+		# 求解参数
+		TsListStart = TsMatrix[:, 1:end-1],# 状态参数高温蓄热温度列表
+		TsListEnd = TsMatrix[:, 2:end],# 状态参数高温蓄热温度列表
+		dt = dt,# 时间步长
+		smoother = smoother,
+	)
+	## 动态规划求解
+	cost, TsIndex = ExhaustiveSolver(nT, nt, C)
+	TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
+	# 初值有问题则采用最原始的初值
+	if cost > 1000
+		println("初值有问题")
+		TsList = fill(TcChangeToElec+5.0, nt)
+		for j ∈ 1:nt
+			TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:TsList[j]+half_nT*dT_origin
+		end
+		
+		
+
 		C, P1Matrix, P2Matrix, P3Matrix, PeMatrix = getStateTransitionCost(
 			PressedWaterOneStorageOneCompressor(),
 			VaryLoadVaryArea();
@@ -319,59 +354,11 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		## 动态规划求解
 		cost, TsIndex = ExhaustiveSolver(nT, nt, C)
 		TsList = map(i -> TsMatrix[TsIndex[i], i], 1:nt)
-		#=
-		begin
-			for i ∈ 1:nt-1
-				CSV.write(joinpath(pwd(), "test", "persionalTest", "看看C", "C_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],C[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
-				#println("看看C", "C_$(i).csv")
-			end
-			for i ∈ 1:nt-1
-				CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P1", "P1_$(i).csv"), 
-				DataFrame(hcat(TsMatrix[:, i],P1Matrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
-				#println("看看P1", "P1_$(i).csv")
-			end
-			for i ∈ 1:nt-1
-				CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P2", "P2_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],P2Matrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
-				#println("看看P2", "P2_$(i).csv")
-			end
-			for i ∈ 1:nt-1
-				CSV.write(joinpath(pwd(), "test", "persionalTest", "看看P3", "P3_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],P3Matrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
-				#println("看看P3", "P3_$(i).csv")
-			end
-			for i ∈ 1:nt-1
-				CSV.write(joinpath(pwd(), "test", "persionalTest", "看看Pe", "Pe_$(i).csv"), DataFrame(hcat(TsMatrix[:, i],PeMatrix[i, :, :]), vcat("Ts", string.(TsMatrix[:, i+1]))))
-				#println("看看Pe", "Pe_$(i).csv")
-			end
+	end
 
-			CSV.write(joinpath(pwd(), "test", "persionalTest", "看看TsIndex和TsList", "Ts.csv"), DataFrame(:TsIndex=>TsIndex, :TsList=>TsList))
-		end
-		=#
-		# 验证更新首尾是否一致
-		if TsList[1] != TsList[end]
-			println("""
-			更新首尾Ts不一致
-			TsList[1] = $(TsList[1])
-			TsList[end] = $(TsList[end])
-			dT_origin = $dT_origin
-			""")
-		else
-			#println("更新首尾Ts一致")
-		end
-
-		df[!, "$countAll"] = TsList
+	while dT_origin > dT && countAll < maxcount
 		flag_nextgap = true
-		isStartValueValid = true
-
-		# 初值有问题
-		if cost > 1000
-			println("初值有问题")
-			TsList = fill(TcChangeToElec+5.0, nt)
-			flag_nextgap = false
-			isStartValueValid = false
-		end
-
 		# 精度足够后尝试改变温度步数
-		
 		if dT_origin <= changedT && !is_nt_changed
 			nT = nTList[2]
 			half_nT = Int((nT - 1) / 2)
@@ -385,12 +372,28 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			is_nt_changed = true
 		end
 		
-
+		#=
 		for j ∈ 1:nt #范围调整
-			if TsIndex[j] == 1 || TsIndex[j] == nT || !isStartValueValid # 温度范围要更小
+			if TsIndex[j] == 1 || TsIndex[j] == nT # 温度范围要更小
 				TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 				flag_nextgap = false
 			end
+		end
+		=#
+		TsIndexChange = TsIndex.-half_nT# 温度索引的偏移量
+		for j ∈ 1:nt #范围调整
+			if TsIndex[j] != half_nT # 温度范围要更小
+				TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
+				flag_nextgap = false
+			end
+		end
+		# 根据温度索引的偏移量更新状态转移成本矩阵
+		for j ∈ 1:nt #范围调整
+			# 先复制不需要修改的部分
+			# 起始温度上，Ts的索引偏移+1，状态转移上移1行;
+			# 结束温度上，Ts的索引偏移+1，状态转移左移1列
+			# 上移m行，左移n列，保留[i,end-m+1:end,end-n+1:end]
+			C[i,:,:]
 		end
 		# 如果没有范围调整，那么减小间隔
 		if flag_nextgap
@@ -413,12 +416,6 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		countAll += 1
 		#println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
 	end
-
-	# if countAll==maxcount
-	# 	CSV.write(joinpath(pwd(),"test","persionalTest","看看为啥震荡","震荡.csv"),df)
-	# 	@warn "failed to solve"
-	# end
-
 
 
 	P1List = map(i -> P1Matrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
@@ -561,3 +558,11 @@ function ExhaustiveSolver(
 
 	return minCost, minTsList
 end
+
+"""
+将矩阵上移m行，左移n列
+"""
+function moveCost(C_i::Array,m::Int,n::Int)
+	
+end
+
