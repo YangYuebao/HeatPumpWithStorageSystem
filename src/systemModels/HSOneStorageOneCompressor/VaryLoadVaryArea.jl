@@ -388,17 +388,71 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			end
 		end
 		# 根据温度索引的偏移量更新状态转移成本矩阵
-		for j ∈ 1:nt #范围调整
+		for j ∈ 1:nt-1 #范围调整
 			# 先复制不需要修改的部分
 			# 起始温度上，Ts的索引偏移+1，状态转移上移1行;
 			# 结束温度上，Ts的索引偏移+1，状态转移左移1列
 			# 上移m行，左移n列，保留[i,end-m+1:end,end-n+1:end]
-			C[i,:,:]
+			recalculateRow,recalculateCol,aimRow = moveCost!(C[j,:,:],nT,TsIndexChange[j],TsIndexChange[j+1])
+			moveCost!(P1Matrix[j,:,:],nT,TsIndexChange[j],TsIndexChange[j+1])
+			moveCost!(P2Matrix[j,:,:],nT,TsIndexChange[j],TsIndexChange[j+1])
+			moveCost!(P3Matrix[j,:,:],nT,TsIndexChange[j],TsIndexChange[j+1])
+			moveCost!(PeMatrix[j,:,:],nT,TsIndexChange[j],TsIndexChange[j+1])
+			# calculate empty cost and power matrix
+			# first, m rows with all aim temperature
+			for i in recalculateRow
+				for k in 1:nT
+					Tsstart = TsMatrix[i,j]
+					Tsaim = TsMatrix[k,j+1]
+
+					sysVariables = SystemVariables(
+						heatLoadList[i],
+						COPLowFunction(TWaste, TCompressorIn + dT_EvaporationStandard),
+						TairList[i],
+						TWaste,
+					)
+
+					C[j,i, k], flag, P1Matrix[j,i, k], P2Matrix[j,i, k], P3Matrix[j,i, k], PeMatrix[j,i, k] = getMinimumCost(Tsstart, Tsaim, dt, params, sysVariables)
+					if !flag
+						C[i, j] = 9999.0
+						P1Matrix[i, j] = 9999.0
+						P3Matrix[i, j] = 9999.0
+						PeMatrix[i, j] = 9999.0
+						break
+					end
+				end
+			end
+			# then n colums with restored aim temperature
+			for i in aimRow
+				for k in recalculateCol
+					Tsstart = TsMatrix[i,j]
+					Tsaim = TsMatrix[k,j+1]
+
+					sysVariables = SystemVariables(
+						heatLoadList[i],
+						COPLowFunction(TWaste, TCompressorIn + dT_EvaporationStandard),
+						TairList[i],
+						TWaste,
+					)
+
+					C[j,i, k], flag, P1Matrix[j,i, k], P2Matrix[j,i, k], P3Matrix[j,i, k], PeMatrix[j,i, k] = getMinimumCost(Tsstart, Tsaim, dt, params, sysVariables)
+					if !flag
+						C[i, j] = 9999.0
+						P1Matrix[i, j] = 9999.0
+						P3Matrix[i, j] = 9999.0
+						PeMatrix[i, j] = 9999.0
+						break
+					end
+				end
+			end
 		end
+		
 		# 如果没有范围调整，那么减小间隔
 		if flag_nextgap
+			# copy restore results
+			
 			# =dT_origin/2*(1+0.5*(rand()-0.5))
-			dT_origin = dT_origin / 2 * (1 + 0.5 * (rand() - 0.5))
+			dT_origin = dT_origin / 2 
 			for j ∈ 1:nt
 				TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 			end
@@ -562,7 +616,38 @@ end
 """
 将矩阵上移m行，左移n列
 """
-function moveCost(C_i::Array,m::Int,n::Int)
+function moveCost!(C_i::Array,nT::Int,m::Int,n::Int)
+	# 先复制不需要修改的部分
+	# 起始温度上，Ts的索引偏移+1，状态转移上移1行;
+	# 结束温度上，Ts的索引偏移+1，状态转移左移1列
+	# 上移m行，左移n列，保留[i,end-m+1:end,end-n+1:end]
+
+	restorRow = restorCol =
+	aimRow = aimCol =
+	recalculateRow = recalculateCol =  1:nT
+
+	if m>0
+		restorRow = m+1:nT
+		aimRow = 1:nT-m
+		recalculateRow = nT-m+1 : nT
+	else
+		restorRow = 1:nT+m
+		aimRow = 1-m:nT
+		recalculateRow = 1:m
+	end
+
+	if n>0
+		restorCol = n+1:nT
+		aimCol = 1:nT-n
+		recalculateCol = nT-n+1 : nT
+	else
+		restorCol = 1:nT+n
+		aimCol = 1-n:nT
+		recalculateCol = 1:nT
+	end
 	
+	C_i[aimRow,aimCol] = C_i[restorRow,restorCol]
+
+	return recalculateRow,recalculateCol,aimRow
 end
 
