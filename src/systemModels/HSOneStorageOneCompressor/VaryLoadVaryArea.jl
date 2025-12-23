@@ -411,7 +411,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			end
 		end
 		countAll += 1
-		#println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
+		println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
 	end
 
 	# if countAll==maxcount
