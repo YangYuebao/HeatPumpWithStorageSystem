@@ -1,4 +1,4 @@
-
+include(joinpath(@__DIR__, "..", "src", "designOptimization", "designOptimizeInterface.jl"))
 using Pkg
 using HeatPumpWithStorageSystem
 using DataFrames, CSV
@@ -107,4 +107,23 @@ result = optimizeFunction(
 	maxheatStorageInputHour    # 蓄热电加热储满时长
 )
 
+# 第六步，进行双层优化
+search_range = [
+    (0.1, 1.0),   # heatPumpServiceCoff
+    (0.5, 20.0),  # heatStorageCapacity  kWh
+    (0.5, 10.0)]  # maxheatStorageInputHour h
 
+@info "开始进行黑盒优化..."
+res = bboptimize(bb_cost;
+    SearchRange=search_range,
+    MaxSteps=100,      # 步长
+    NumDimensions=3,
+    TraceInterval=1.0,
+    TraceMode=:compact)
+
+best_x = best_candidate(res)
+best_f = best_fitness(res)      
+
+@info "优化结束"
+@info "最优变量" heatPumpServiceCoff = best_x[1] heatStorageCapacity = best_x[2] maxheatStorageInputHour = best_x[3]
+@info "最小总现值" best_f  # 元
