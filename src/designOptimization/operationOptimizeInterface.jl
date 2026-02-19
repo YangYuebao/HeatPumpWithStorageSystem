@@ -257,37 +257,33 @@ end
 2. 结合设计常量，重新整合成优化问题
 """
 function generateOperationFunction(designParameters::DesignOptimizeParameters,designInput::DesignOptimizeInput)
+    local call_count = 0
+    local controlResult = []
     function operationFunction(
         heatPumpServiceCoff::Float64,    # 热泵服务系数
         heatStorageCapacity::Float64,    # 蓄热容量
         maxheatStorageInputHour::Float64    # 蓄热电加热储满时长
     )
-        COPOverlapFunction = designParameters.COPOverlapFunction
-        COPLowFunction = designParameters.COPLowFunction
-        hourlyTariffFunction = designParameters.hourlyTariffFunction
-        heatConsumptionPowerFunction = designParameters.heatConsumptionPowerFunction
-        TairFunction = designParameters.TairFunction
-        TWaste = designParameters.TWaste
-        dT=designParameters.dT
-        dt=designParameters.dt
-        smoother=designParameters.smoother
+        call_count += 1
+        println("$call_count:$(round.([heatPumpServiceCoff,heatStorageCapacity,maxheatStorageInputHour],digits=3))")
+
         Tuse = designParameters.Tuse
         TCompressorIn = designParameters.TCompressorIn
         maxheatPower = maximum(designInput.heatConsumptionPower)
         COPWater_design = designParameters.COPWater(TCompressorIn,Tuse)
-        TstorageTankMax = designParameters.Tsmax
+
         PhMax = maxheatPower/COPWater_design * heatPumpServiceCoff
         PeMax = max(maxheatPower * (
             1- heatPumpServiceCoff + 
             heatStorageCapacity / maxheatStorageInputHour
         ),0.0)
-        cpm = heatStorageCapacity * maxheatPower / (TstorageTankMax - Tuse)
+        cpm = heatStorageCapacity * maxheatPower / (designParameters.Tsmax - Tuse)
 
         params = SystemParameters(
             ThMax = designParameters.ThMax,
             Tuse = designParameters.Tuse,
             dT = designParameters.dT_EvaporationStandard,
-            TCompressorIn = designParameters.TCompressorIn,
+            TCompressorIn = TCompressorIn,
             cpm = cpm,#
             COPWater = designParameters.COPWater,
             PhMax = PhMax,#
@@ -316,23 +312,25 @@ function generateOperationFunction(designParameters::DesignOptimizeParameters,de
         sysStruct: $(params.sysStruct)
         """)
         =#
-
-        return generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
-            COPOverlap = COPOverlapFunction,
-            COPLowFunction = COPLowFunction,
-            hourlyTariffFunction = hourlyTariffFunction,
-            heatConsumptionPowerFunction = heatConsumptionPowerFunction,
-            TairFunction = TairFunction,
+        result = generateAndSolve(PressedWaterOneStorageOneCompressor(), MinimizeCost(), VaryLoadVaryArea(), GoldenRatioMethod();
+            COPOverlap = designParameters.COPOverlapFunction,
+            COPLowFunction = designParameters.COPLowFunction,
+            hourlyTariffFunction = designParameters.hourlyTariffFunction,
+            heatConsumptionPowerFunction = designParameters.heatConsumptionPowerFunction,
+            TairFunction = designParameters.TairFunction,
 
             params = params,
 
-            TWaste = TWaste,
+            TWaste = designParameters.TWaste,
             # 求解参数
-            dT = dT,# 状态参数高温蓄热温度离散步长
-            dt = dt,# 时间步长
+            dT = designParameters.dT,# 状态参数高温蓄热温度离散步长
+            dt = designParameters.dt,# 时间步长
             #lambdaPe=lambdaPe,
-            smoother = smoother,
+            smoother = designParameters.smoother,
         )
+        #println("运行费用：$(result[1])")
+        controlResult = result[2]
+        return result
     end
     function operationFunction(designVariables::DesignOptimizeVariables)
         return operationFunction(
@@ -342,7 +340,61 @@ function generateOperationFunction(designParameters::DesignOptimizeParameters,de
         )
     end
 
-    return operationFunction
+    function getParams(
+        heatPumpServiceCoff::Float64,    # 热泵服务系数
+        heatStorageCapacity::Float64,    # 蓄热容量
+        maxheatStorageInputHour::Float64    # 蓄热电加热储满时长
+    )
+        Tuse = designParameters.Tuse
+        TCompressorIn = designParameters.TCompressorIn
+        maxheatPower = maximum(designInput.heatConsumptionPower)
+        COPWater_design = designParameters.COPWater(TCompressorIn,Tuse)
+
+        PhMax = maxheatPower/COPWater_design * heatPumpServiceCoff
+        PeMax = max(maxheatPower * (
+            1- heatPumpServiceCoff + 
+            heatStorageCapacity / maxheatStorageInputHour
+        ),0.0)
+        cpm = heatStorageCapacity * maxheatPower / (designParameters.Tsmax - Tuse)
+
+        params = SystemParameters(
+            ThMax = designParameters.ThMax,
+            Tuse = designParameters.Tuse,
+            dT = designParameters.dT_EvaporationStandard,
+            TCompressorIn = TCompressorIn,
+            cpm = cpm,#
+            COPWater = designParameters.COPWater,
+            PhMax = PhMax,#
+            PeMax = PeMax,#
+            cp_cw = designParameters.cp_cw,
+            latentHeat = designParameters.latentHeat,
+            Tsmin = designParameters.Tsmin,
+            Tsmax = designParameters.Tsmax,
+            dTRecycleSupply = designParameters.dTRecycleSupply,
+            dTRecycleBackward = designParameters.dTRecycleBackward,
+            sysStruct = designParameters.sysStruct
+        )
+        #=
+        println("""
+        ThMax: $(params.ThMax)
+        Tuse: $(params.Tuse)
+        dT: $(params.dT)
+        TCompressorIn: $(params.TCompressorIn)
+        cpm: $(params.cpm)
+        PhMax: $(params.PhMax)
+        PeMax: $(params.PeMax)
+        Tsmin: $(params.Tsmin)
+        Tsmax: $(params.Tsmax)
+        dTRecycleSupply: $(params.dTRecycleSupply)
+        dTRecycleBackward: $(params.dTRecycleBackward)
+        sysStruct: $(params.sysStruct)
+        """)
+        =#
+        
+        return params
+    end
+
+    return operationFunction,()->(call_count),()->(controlResult),getParams
 end
 
 struct OperationOptimizeResult <: DesignOptimizeInterface

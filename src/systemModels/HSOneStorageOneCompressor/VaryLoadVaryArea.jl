@@ -144,6 +144,84 @@ function getStateTransitionCost(::PressedWaterOneStorageOneCompressor, ::VaryLoa
 	return C_smoothed, P1Matrix, P2Matrix, P3Matrix, PeMatrix
 end
 
+function getTemperatureLineCost(TsList;
+	COPLowFunction::Function,
+	hourlyTariffFunction::Function,   # 电价函数
+	heatConsumptionPowerFunction::Function,  # 用热负载函数
+	TairFunction::Function,# 环境温度函数
+
+	# 总循环参数
+	params::SystemParameters,
+	TWaste::Real,# 废热回收蒸发器温度
+
+	# 求解参数
+	dt::Real = 1 / 6,# 时间步长
+)
+	@info "开始计算温度线成本"
+	println(TsList[1]," ",TsList[2])
+	nt = Int(24 / dt + 1)
+	if nt != length(TsList)
+		throw(error("温度数组与时间间隔不匹配！nt=$nt length(TsList)=$(length(TsList))"))
+	end
+
+	tList = 0:dt:24
+	
+	P1List = zeros(nt - 1)
+	P2List = zeros(nt - 1)
+	P3List = zeros(nt - 1)
+	PeList = zeros(nt - 1)
+	realCostList = zeros(nt - 1)
+
+	heatLoadList = heatConsumptionPowerFunction.(tList)
+	TairList = TairFunction.(tList)
+	costGridList = hourlyTariffFunction.(tList)
+
+	for i in 1:nt-1
+		sysVariables = SystemVariables(
+			heatLoadList[i],
+			COPLowFunction(TWaste, params.TCompressorIn + params.dT),
+			TairList[i],
+			TWaste,
+		)
+		if i==1
+			@info "再看前两项"
+			println(TsList[i]," ", TsList[i+1])
+		end
+		cost_test, _, P1List[i], P2List[i], P3List[i], PeList[i] = getMinimumCost(TsList[i], TsList[i+1], dt, params, sysVariables)
+
+		if i==1
+			println("""
+			TsList[i], TsList[i+1] = $(TsList[i]), $(TsList[i+1])
+			dt=$dt
+        
+			params:
+			ThMax: $(params.ThMax)
+			Tuse: $(params.Tuse)
+			dT: $(params.dT)
+			TCompressorIn: $(params.TCompressorIn)
+			cpm: $(params.cpm)
+			PhMax: $(params.PhMax)
+			PeMax: $(params.PeMax)
+			Tsmin: $(params.Tsmin)
+			Tsmax: $(params.Tsmax)
+			dTRecycleSupply: $(params.dTRecycleSupply)
+			dTRecycleBackward: $(params.dTRecycleBackward)
+			sysStruct: $(params.sysStruct)
+			
+
+			sysVariables:
+			heatLoad: $(heatLoadList[i])
+			costGridList: $(costGridList[i])
+
+			cost_test: $(cost_test)
+			""")
+		end
+
+		realCostList[i] = cost_test * costGridList[i]
+	end
+	return sum(realCostList), TsList, P1List, P2List, P3List, PeList, realCostList
+end
+
 function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost, ::VaryLoadVaryArea, ::GoldenRatioMethod;
 	COPOverlap::Function,
 	COPLowFunction::Function,
@@ -272,13 +350,13 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	tList = 0:dt:24# 正式计算的时间步
 
 	nTList = [3,5]
-	changedT = 64*dT
+	changedT = 32*dT
 	is_nt_changed = false
 	nT = nTList[1]# 温度步数
 	half_nT = Int((nT - 1) / 2)
 	nt = length(tList)
-	#TsList = fill(Tsmax, nt)
-	TsList = fill(TcChangeToElec+5.0, nt)
+	#TsList = fill(TcChangeToElec+5.0, nt)
+	TsList = fill(Tsmin, nt)
 	TsMatrix = zeros(nT, nt)
 
 	heatLoadList = heatConsumptionPowerFunction.(tList)
@@ -292,13 +370,15 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	countSingleGap = 0
 	maxcount = 500
 	df = DataFrame()
-	C = zeros(nt, nT, nT)
+	C = fill(9999.0,nt, nT, nT)
 	P1Matrix = zeros(nt, nT, nT)
 	P2Matrix = zeros(nt, nT, nT)
 	P3Matrix = zeros(nt, nT, nT)
 	PeMatrix = zeros(nt, nT, nT)
 	TsIndex = zeros(nt)
-	while dT_origin > dT && countAll < maxcount
+
+	must_next = false
+	while (dT_origin > dT && countAll < maxcount) || must_next
 		C, P1Matrix, P2Matrix, P3Matrix, PeMatrix = getStateTransitionCost(
 			PressedWaterOneStorageOneCompressor(),
 			VaryLoadVaryArea();
@@ -361,9 +441,10 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		df[!, "$countAll"] = TsList
 		flag_nextgap = true
 		isStartValueValid = true
+		must_next = false
 
 		# 初值有问题
-		if cost > 1000
+		if cost > 50 || cost <0.01
 			println("初值有问题")
 			TsList = fill(TcChangeToElec+5.0, nt)
 			flag_nextgap = false
@@ -372,7 +453,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 
 		# 精度足够后尝试改变温度步数
 		
-		if dT_origin <= changedT && !is_nt_changed
+		if dT_origin <= changedT && dT_origin <= 2.0 && !is_nt_changed
 			nT = nTList[2]
 			half_nT = Int((nT - 1) / 2)
 			TsMatrix = zeros(nT, nt)
@@ -383,6 +464,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			P3Matrix = zeros(nt, nT, nT)
 			PeMatrix = zeros(nt, nT, nT)
 			is_nt_changed = true
+			must_next = true
 		end
 		
 
@@ -403,7 +485,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 		else
 			countSingleGap += 1
 			if countSingleGap > 6
-				dT_origin = min(dT_origin * 2 * (1 + 0.5 * (rand() - 0.5)), dt * k_dT_to_dt)
+				dT_origin = min(dT_origin * (1 + rand()), dt * k_dT_to_dt)
 				for j ∈ 1:nt
 					TsMatrix[:, j] = TsList[j]-half_nT*dT_origin:dT_origin:(TsList[j]+half_nT*dT_origin+1e-8)
 				end
@@ -427,8 +509,16 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	PeList = map(i -> PeMatrix[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	realCostList = map(i -> C[i, TsIndex[i], TsIndex[i+1]], 1:nt-1)
 	realCostList .-= smoother * (sum(abs2.(P1List)) + sum(abs2.(P2List)) + sum(abs2.(P3List)) + sum(abs2.(PeList)))
+	totalRealCost = sum(realCostList)
 
-	return sum(realCostList), TsList, P1List, P2List, P3List, PeList, realCostList
+	if totalRealCost<1e-3
+		@warn "Total real cost is too small"
+		for i in 1:nt
+			CSV.write(joinpath(pwd(),"temp","$(i).csv"),DataFrame(C[i,:,:],:auto))
+		end
+	end
+
+	return totalRealCost, TsList, P1List, P2List, P3List, PeList, realCostList
 end
 
 """
@@ -547,6 +637,8 @@ function ExhaustiveSolver(
 	valueList = zeros(nT)
 	jList = 1:nT
 	TsIndexListMatirx = zeros(Int, nt, nT)
+	minCost = 99999.0
+	index = 0
 	for j in jList
 		temp1, temp2 = dpSolve(
 			VaryLoadVaryArea();
@@ -554,9 +646,11 @@ function ExhaustiveSolver(
 			j = j,
 		)
 		valueList[j], TsIndexListMatirx[:, j] = temp1, temp2
+		if valueList[j]<minCost
+			minCost, index = valueList[j], j
+		end
 	end
 
-	minCost, index = findmin(valueList)
 	minTsList = TsIndexListMatirx[:, index]
 
 	return minCost, minTsList

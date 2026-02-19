@@ -5,6 +5,7 @@ using LinearAlgebra
 using Interpolations
 using CoolProp# 物性库
 using CSV,DataFrames
+using BlackBoxOptim
 
 abstract type EnergySystem end# 计算系统形式
 
@@ -59,8 +60,8 @@ export R134a_Water,NH3_Water,R1233zdE_Water
 #双蓄系统生成COP函数
 export getCOPFunction
 
-# 古老的计算程序
-export generateSystemCoff, generateAndSolve,getStateTransitionCost,getStateTransitionCost_SingleStep
+# 运行优化计算程序
+export generateSystemCoff, generateAndSolve,getStateTransitionCost,getStateTransitionCost_SingleStep,getTemperatureLineCost
 
 # 根据向量生成函数，用于生成价格函数，负载函数，区域温度函数
 export generateGridPriceFunction,generateLoadFunction,generateAreaTemperatureFunction
@@ -80,8 +81,18 @@ export SystemParameters,SystemVariables
 export getMinimumCost,getMinimumCost_MILP	#导出
 export getCOPbyMode
 
-include(joinpath(pwd(), "src", "designOptimization","operationOptimizeInterface.jl"))
+dirname = joinpath(pwd(), "src", "designOptimization")
+for file in readdir(dirname)
+	srcpath = joinpath(dirname, file)
+	if isfile(srcpath)
+		include(srcpath)
+	end
+end
 # 导出用来与设计优化联合的类型和函数
 export DesignOptimizeInput,DesignOptimizeVariables,DesignOptimizeParameters
 export generateDesignOptimizeParameters,generateOperationFunction
+
+export FinanceParameters
+export totalPresentWorth, get_bb_cost,bboptimize
+
 end # module HeatPumpWithStorageSystem

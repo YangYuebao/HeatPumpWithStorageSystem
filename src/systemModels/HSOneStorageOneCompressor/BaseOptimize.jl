@@ -71,7 +71,7 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
     TsMid = 0.5*(TsStart+TsEnd)
     # delta[1] mode 2 can work with mode 1 and 3
     # delta[2] mode 3 can't work
-    delta=[TsMid+params.dT>=params.Tuse,TsMid+params.dT>=params.ThMax]
+    delta=[(TsMid+params.dT>=params.Tuse)||(120.0<=TsEnd <=120.0+1e-6),TsMid+params.dT>=params.ThMax]
     # Check if status valid by temperature
     if !(x1+x2<=1+delta[1] &&
         x2+x3<=1 &&
@@ -104,7 +104,17 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
             return false,1.0,1.0,1.0,1.0
         end
     elseif x1==1 && x2==1 && x3==0
-        if TsStart > TsEnd >= params.Tuse+params.dT
+        if (TsStart > TsEnd >= params.Tuse+params.dT)
+            coph1 = params.COPWater(params.TCompressorIn,params.Tuse)
+            return true,
+            coph1,
+            params.COPWater(TsMid-params.dT,params.Tuse),
+            1.0,
+            sysVariables.COPl*coph1/(coph1+sysVariables.COPl-1)
+        elseif (120.0<=TsEnd<120.0+1e-6)
+            # 末态温度为蓄热的最低温度，这时候应该先蓄热供热再热泵供热，联合起来
+            #println("末态温度120℃")
+            #return false,1.0,1.0,1.0,1.0
             coph1 = params.COPWater(params.TCompressorIn,params.Tuse)
             return true,
             coph1,
@@ -162,11 +172,36 @@ end
 
 const model_lp = getLPModel()
 
-function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParameters,sysVariables::SystemVariables)
+function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParameters,sysVariables::SystemVariables;show=false)
+    if show
+        @info "内部检查："
+        println("""
+        TsList[i], TsList[i+1] = $(TsStart), $(TsEnd)
+        dt=$dt
+
+        params:
+        ThMax: $(params.ThMax)
+        Tuse: $(params.Tuse)
+        dT: $(params.dT)
+        TCompressorIn: $(params.TCompressorIn)
+        cpm: $(params.cpm)
+        PhMax: $(params.PhMax)
+        PeMax: $(params.PeMax)
+        Tsmin: $(params.Tsmin)
+        Tsmax: $(params.Tsmax)
+        dTRecycleSupply: $(params.dTRecycleSupply)
+        dTRecycleBackward: $(params.dTRecycleBackward)
+        sysStruct: $(params.sysStruct)
+        
+
+        sysVariables:
+        heatLoad: $(sysVariables.load)
+        """)
+    end
     
     ThMax = params.ThMax
     Tuse = params.Tuse
-        
+
     if TsStart<Tuse-params.dT<TsEnd
         dt1=dt*(Tuse-params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
@@ -316,6 +351,17 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
         return 9999.0, false, 9999.0, 9999.0, 9999.0,9999.0
     end
 
+    if show
+        println("""
+        cost=$cost,
+        flagAll=$flagAll,
+        P1Value=$P1Value,
+        P2Value=$P2Value,
+        P3Value=$P3Value,
+        PeValue=$PeValue
+        """)
+        @info "内部检查结束"
+    end
     return cost, flagAll, P1Value, P2Value, P3Value, PeValue
 end
 

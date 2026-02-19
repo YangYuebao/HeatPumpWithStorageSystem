@@ -530,8 +530,8 @@ end
 
 #2小时20分钟
 # 2025年3月17日3时开始计算
-
-situation = "situation21_base_result"
+situation = "situation21_test"
+@info situation
 #常数
 begin
 	hourlyTariff = ones(48) * 0.7393
@@ -597,7 +597,7 @@ begin
 
 	# 热容的计算列表
 	#heatStorageCapacityList = 0.0:1.0:10.0
-	heatStorageCapacityList = [0.0]
+	heatStorageCapacityList = [8.0]
 	# 用热温度的计算列表
 	#TuseList = 130.0:10.0:180.0
 	TuseList = [150.0]
