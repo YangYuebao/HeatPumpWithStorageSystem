@@ -22,20 +22,34 @@ situation = "situation22"
 #项目设计条件
 begin
 	# 电价，按照等时间隔输入时段起始时刻的电费。如果需要1小时的间隔描述，就为24个；需要半小时就为48个
-	hourlyTariff = zeros(24)
-	hourlyTariff[1:8] .= 1.0094
-	hourlyTariff[9:16] .= 0.658
-	hourlyTariff[17:24] .= 0.3725
+	hourly_tariff_ori = ones(48)
+	p = 1.7
+	pp = p * 1.2
+	v = 0.35
+	vv = v * 0.8
 
-	# 环境温度，和电价的输入逻辑一样。但是现在设定的蒸发温度为TWaste，设备动作与Tair无关
+	hourly_tariff_ori[1:12] .*= v
+	hourly_tariff_ori[23:26] .*= v
+	hourly_tariff_ori[29:30] .*= pp
+	hourly_tariff_ori[31:39] .*= p
+	hourly_tariff_ori[40:43] .*= pp
+	hourly_tariff_ori[44] *= p
+
+	hourlyTariff = hourly_tariff_ori * 0.7393
+
 	Tair = vcat(
 		fill(26.0, 7),
 		fill(27.0, 7),
 		fill(26.0, 11),
 	)
 
-	# 用热负荷曲线，也是按等时间隔输入
-	heatConsumptionPower = ones(24)
+	heatConsumptionPower = vcat(
+		fill(0.0, 16),
+		fill(1.0, 8),
+		fill(0.0, 2),
+		fill(1.0, 8),
+		fill(0.0, 14),
+	)
 
 	# 系数
 	maxCOP = 21.0						# 最大COP
@@ -53,7 +67,7 @@ begin
 
 	# 计算参数
 	dT = 0.02		# 运行优化计算的温度曲线精度
-	dt = 1.0		# 运行优化计算的时间间隔
+	dt = 0.5		# 运行优化计算的时间间隔
 	smoother = 1e-8		# 正则化参数，不用改
 
 	# 用热温度℃
@@ -145,19 +159,22 @@ begin
 	finalStorageCost = storageCost*(storageInstallCoff+storageAnnualCost*p*(1-p^lifeYears)/(1-p))
 end
 
-
 # 现在可以调用函数进行优化了
 
 # 1.7594
-# heatPumpServiceCoff = 1.0
-# heatStorageCapacity = 0.5
-# maxheatStorageInputHour=10.0
-# @time result = optimizeFunction(
-# 	heatPumpServiceCoff,    # 热泵服务系数
-# 	heatStorageCapacity,    # 蓄热容量
-# 	maxheatStorageInputHour    # 蓄热电加热储满时长
-# )
+heatPumpServiceCoff = 1.0
+heatStorageCapacity = 1.0
+maxheatStorageInputHour=1.0
+@time result = optimizeFunction(
+	heatPumpServiceCoff,    # 热泵服务系数
+	heatStorageCapacity,    # 蓄热容量
+	maxheatStorageInputHour    # 蓄热电加热储满时长
+)
 
+#=
+plt=plot(result[2],xlabel="Hour",ylabel="Temerature ℃",title="Heat Storage Temperature")
+savefig(plt,"plots/1.0_8.0_4.0.png")
+=#
 
 #=
  Info: 最优变量
@@ -219,12 +236,16 @@ fitnessPlotController = FitnessPlot([],[[]],0,0,true)
 
 search_range = [
     (0.1, 1.5),   # heatPumpServiceCoff
-    (0.5, 10.0),  # heatStorageCapacity  kWh
-    (0.5, 10.0)]  # maxheatStorageInputHour h
+    (0.0, 10.0),  # heatStorageCapacity  kWh
+    (0.0, 10.0)]  # maxheatStorageInputHour h
+
+good_guess = [
+	[1.0,0.0,10.0]
+]
 
 @info "开始进行黑盒优化..."
 @info "线程数:$(Threads.nthreads())"
-@time res = bboptimize(bb_cost;
+@time res = bboptimize(bb_cost,good_guess;
     SearchRange=search_range,
     MaxSteps=1500,      # 最多迭代步数
     NumDimensions=3,
@@ -245,5 +266,5 @@ best_x = bbo.best_candidate(res)
 best_f = bbo.best_fitness(res)
 
 @info "优化结束"
-@info "最优变量" heatPumpServiceCoff = best_x[1] heatStorageCapacity = best_x[2] maxheatStorageInputHour = best_x[3]
-@info "最小总现值" best_f  # 元
+@info "最优变量" heatPumpServiceCoff = best_x[1]heatStorageCapacity = best_x[2]maxheatStorageInputHour = best_x[3]
+@info "最小总现值" best_f

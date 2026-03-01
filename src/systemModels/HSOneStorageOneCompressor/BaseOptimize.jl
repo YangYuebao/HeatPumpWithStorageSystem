@@ -71,6 +71,7 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
     TsMid = 0.5*(TsStart+TsEnd)
     # delta[1] mode 2 can work with mode 1 and 3
     # delta[2] mode 3 can't work
+    #delta=[(TsMid+params.dT>=params.Tuse),TsMid+params.dT>=params.ThMax]
     delta=[(TsMid+params.dT>=params.Tuse)||(120.0<=TsEnd <=120.0+1e-6),TsMid+params.dT>=params.ThMax]
     # Check if status valid by temperature
     if !(x1+x2<=1+delta[1] &&
