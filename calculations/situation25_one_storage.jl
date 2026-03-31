@@ -50,7 +50,7 @@ begin
 
 	timePoint = 0:0.5:24 |> collect        # 
 	heatStorageOutEfficiency = 0.95    # 蓄热释放效率
-	heatStorageInEfficiency = 0.99      # 蓄热充能效率
+	heatStorageInEfficiency = 0.95      # 蓄热充能效率
 	heatStorageVelocity = 1.0
 	
 	Tsmax = 600.0
@@ -59,18 +59,14 @@ end
 # 经济性参数条件
 begin
 	# 设备成本
-	waterCompresorCost=1200.0*1.2	# 水蒸气压缩机单位供热功率成本 元/kW
-	lowHPCost = 1450.0*1.2			# 低温热泵单位供热功率成本 元/kW
 	elecHeaterCost = 1000.0		# 电极锅炉单位供热功率成本 元/kW
 	storageCost = 450e4/1000/2.0	# 承压水蓄热单位体积成本 元/m³
 	
 	# 安装费系数
-	heatpumpInstallCoff = 2
 	elecHeaterInstallCoff = 1.2
 	storageInstallCoff = 1.2
 
 	# 维保费用
-	heatpumpAnnualCost = 0.1
 	elecHeaterAnnualCost = 0.05
 	storageAnnualCost = 0.05
 
@@ -86,7 +82,6 @@ end
 end
 # 第二步，生成设计参数输入结构体
 osp = generateSystemCoff(OneStorage();
-
     hourlyTariff=hourlyTariff,
     timePoint=timePoint,
     load=heatConsumptionPower,
@@ -108,8 +103,7 @@ begin
 	p=1/(1+discountRate)
 	# 折线系数
 	pc=(1-p^lifeYears)/discountRate
-	finalWaterCompresorCost=waterCompresorCost*(heatpumpInstallCoff+heatpumpAnnualCost*p*(1-p^lifeYears)/(1-p))
-
+	
 	finalElecHeaterCost = elecHeaterCost*(elecHeaterInstallCoff+elecHeaterAnnualCost*p*(1-p^lifeYears)/(1-p))
 
 	# 把蓄热的立方米造价转换成蓄热时长造价
@@ -157,7 +151,7 @@ function monitor_callback(fp::FitnessPlot, opt_controller)
 	
 	@info "触发回调,最优解：$(round.(current_best_solution,digits=3)), 最佳适应度值：$(current_best_fitness)"
 
-	if fp.verbose #&& plot.iteration_count % 10 == 0
+	if fp.verbose && fp.iteration_count % 20 == 0
         println("迭代 $(fp.iteration_count): 最小成本 = $(fp.fitness_data[end])")
 		plt = plot(fp.fitness_data,xlabel="iteration times",ylabel="least cost",label=:none,title="optimize value vs iteration times")
 		display(plt)
@@ -168,7 +162,7 @@ fitnessPlotController = FitnessPlot([],[[]],0,0,true)
 
 search_range = [
     (0.0, 10.0),  # heatStorageCapacity  kWh
-    (0.0, 3.0)]  # maxheatStorageInputHour h
+    (0.0, 3.0)]  # PeMax kW
 
 good_guess = [
 	[1.0,1.0]
@@ -186,42 +180,13 @@ good_guess = [
     TraceMode=:compact,
 	CallbackFunction = oc -> monitor_callback(fitnessPlotController,oc),
 	CallbackInterval = 0.0,
-	NThreads=4
+	#NThreads=4
 )
-
-bb_cost(0.5,1.0,10.0)
-
-println("调用次数：$(getCount())")
 
 best_x = bbo.best_candidate(res)
 best_f = bbo.best_fitness(res)
 
-parms=getParams(best_x...)
-
 @info "优化结束"
-@info "最优变量" heatPumpServiceCoff = best_x[1] heatStorageCapacity = best_x[2] maxheatStorageInputHour = best_x[3]
+@info "最优变量" heatStorageCapacity = best_x[1] PeMax = best_x[2]
 @info "最小总现值" best_f
 
-
-@info "电功率" parms.PeMax
-@info "蓄热容量" parms.cpm
-
-#=
-8小时
-┌ Info: 最优变量
-│   heatPumpServiceCoff = 0.9484103157391853
-│   heatStorageCapacity = 8.928984078929077e-12
-└   maxheatStorageInputHour = 9.845687945569416
-
-┌ Info: 最小总现值
-└   best_f = 11861.64753332582 
-
-┌ Info: 电功率
-└   parms.PeMax = 0.051589684261721565
-
-┌ Info: 蓄热容量
-└   parms.cpm = 1.238475042528518e-13
-=#
-#=
-[ Info: 触发回调,最优解：[0.963, 0.04, 8.594]
-=#

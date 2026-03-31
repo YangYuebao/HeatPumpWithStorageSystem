@@ -15,6 +15,8 @@ struct OneStorageResult
     objective::Real
     heaterPower::Vector
     heatStorage::Vector
+    heatStorageIn::Vector
+    heatStorageOut::Vector
 end
 
 OneStorageParameters(;
@@ -81,7 +83,7 @@ function generateAndSolve(::OneStorage;
     load::Vector=fill(1.0,24),
     heatStorageOutEfficiency::Real=0.95,    # 蓄热释放效率
     heatStorageInEfficiency::Real=0.99,      # 蓄热充能效率
-    heatStorageVelocity::Real=1.0,
+    heatStorageVelocity::Real=1.0
 )
     model = Model(HiGHS.Optimizer)
     set_silent(model)
@@ -114,7 +116,21 @@ function generateAndSolve(::OneStorage;
     @objective(model, Min, sum(hourlyTariff[i]*heaterPower[i]*timePeriod[i] for i=1:m))
     optimize!(model)
 
-    return OneStorageResult(objective_value(model),value.(heaterPower),value.(heatStorage))
+    isFeasible = primal_status(model)
+    
+    flag = isFeasible in [FEASIBLE_POINT,NEARLY_FEASIBLE_POINT]
+
+    if !flag
+        return OneStorageResult(
+            9999.0,
+            fill(9999.0,m),
+            fill(9999.0,m+1),
+            fill(9999.0,m),
+            fill(9999.0,m)
+        )
+    end
+
+    return OneStorageResult(objective_value(model),value.(heaterPower),value.(heatStorage),value.(heatStorageIn),value.(heatStorageOut))
 end
 
 function generateAndSolve(::OneStorage,osp::OneStorageParameters)
