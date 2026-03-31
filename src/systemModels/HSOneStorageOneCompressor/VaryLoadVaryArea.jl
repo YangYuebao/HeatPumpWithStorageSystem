@@ -276,7 +276,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	end
 
 	# 先试算，温差除以时间要小于一个数，默认是10℃/1h=10
-	k_dT_to_dt = 10
+	k_dT_to_dt = 64
 	#=
 	# 生成初始解
 	begin
@@ -355,8 +355,8 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	nT = nTList[1]# 温度步数
 	half_nT = Int((nT - 1) / 2)
 	nt = length(tList)
-	#TsList = fill(TcChangeToElec+5.0, nt)
-	TsList = fill(Tsmin, nt)
+	TsList = fill(TcChangeToElec+10.0, nt)
+	#TsList = fill(Tsmin, nt)
 	TsMatrix = zeros(nT, nt)
 
 	heatLoadList = heatConsumptionPowerFunction.(tList)

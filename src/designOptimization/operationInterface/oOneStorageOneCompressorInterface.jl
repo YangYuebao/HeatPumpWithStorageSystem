@@ -1,10 +1,3 @@
-#=
-考虑一个设计优化问题
-用热温度、电价曲线均确定
-=#
-
-"""设计优化参数结构体"""
-abstract type DesignOptimizeInterface end
 
 """
     设计优化常量参数，用来描述工厂用热的设计条件
@@ -171,10 +164,18 @@ struct DesignOptimizeParameters <: DesignOptimizeInterface
     DesignOptimizeParameters(x...) = new(x...)
 end
 
+struct OperationOptimizeResult <: DesignOptimizeInterface
+    TsList::Vector{Float64}
+    tList::Vector{Float64}
+    TairList::Vector{Float64}
+    
+    refrigerant::OverlapRefrigerant
+end
+
 """
 从DesignOptimizeInput生成DesignOptimizeParameters
 """
-function generateDesignOptimizeParameters(input::DesignOptimizeInput)
+function generateDesignOptimizeParameters(::PressedWaterOneStorageOneCompressor,input::DesignOptimizeInput)
     maxCOP = input.maxCOP
     eta_s = input.eta_s
     or = input.refrigerant
@@ -250,13 +251,14 @@ function generateDesignOptimizeParameters(input::DesignOptimizeInput)
     )
 end
 
+
 """
-生成设计优化的目标函数。
+生成热泵承压水蓄热设计优化的目标函数。
 算法流程：
 1. 输入设计变量
 2. 结合设计常量，重新整合成优化问题
 """
-function generateOperationFunction(designParameters::DesignOptimizeParameters,designInput::DesignOptimizeInput)
+function generateOperationFunction(::PressedWaterOneStorageOneCompressor,designParameters::DesignOptimizeParameters,designInput::DesignOptimizeInput)
     local call_count = 0
     local controlResult = []
     function operationFunction(
@@ -397,10 +399,3 @@ function generateOperationFunction(designParameters::DesignOptimizeParameters,de
     return operationFunction,()->(call_count),()->(controlResult),getParams
 end
 
-struct OperationOptimizeResult <: DesignOptimizeInterface
-    TsList::Vector{Float64}
-    tList::Vector{Float64}
-    TairList::Vector{Float64}
-    
-    refrigerant::OverlapRefrigerant
-end

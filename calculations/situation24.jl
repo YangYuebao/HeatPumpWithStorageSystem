@@ -1,7 +1,7 @@
 
 # 使用经济性优化需要在项目主目录下切换到calculations环境
 #=
-用于测试固定温度曲线下的计算函数 getTemperatureLineCost
+用于测试 getMinimumCost 这类函数的计算结果
 =#
 using Pkg
 #Pkg.activate("calculations")
@@ -16,7 +16,7 @@ using CoolProp
 发布分支design_optimize
 =#
 
-situation = "situation23"
+situation = "situation24"
 #第一步，指定设计条件变量
 #项目设计条件
 begin
@@ -163,13 +163,13 @@ fp=FinanceParameters(
 bb_cost = get_bb_cost(optimizeFunction,fp)
 
 
-heatLoad=1.0
-heatPumpServiceCoff = 1.0
+heatLoad=0.0
+heatPumpServiceCoff = 1.5
 heatStorageCapacity = 0.5
-maxheatStorageInputHour=10.0
+maxheatStorageInputHour=1.0
 
-TsStart=175.0
-TsEnd=170.0
+TsStart=170.0
+TsEnd=180.0
 dt=1.0
 
 params = getParams(heatPumpServiceCoff,heatStorageCapacity,maxheatStorageInputHour)
@@ -180,65 +180,45 @@ sysVariables = SystemVariables(
 	TWaste,
 )
 
-#=
-[ Info: 内部检查结束
-(0.24808180185848658, true, 0.24634801692900746, 0.0017337849294791472, 0.0, 0.0)
-=#
 single_result = getMinimumCost(TsStart,TsEnd,dt,params,sysVariables;show=true)
+#=
+1.0
+170-175
+cost=0.012061905935143558,
+flagAll=true,
+P1Value=0.0,
+P2Value=0.0,
+P3Value=0.012061905935143558,
+PeValue=0.0
+=#
+#=
+1.0
+175-180
+cost=0.03571428571428571,
+flagAll=true,
+P1Value=0.0,
+P2Value=0.0,
+P3Value=0.0,
+PeValue=0.03571428571428571
+=#
+#=
+1.0
+170-180
+(0.04777619164942927, true, 0.0, 0.0, 0.012061905935143558, 0.03571428571428571)
+170-175
+cost=0.012061905935143558,
+flagAll=true,
+P1Value=0.0,
+P2Value=0.0,
+P3Value=0.024123811870287115,
+PeValue=0.0
+175-180
+cost=0.03571428571428571,
+flagAll=true,
+P1Value=0.0,
+P2Value=0.0,
+P3Value=0.0,
+PeValue=0.07142857142857142
+=#
 
-TsList2 = vcat(
-	175.0,
-	fill(170.0,20),
-	fill(175.0,4)
-)
-TsList1 = fill(120.0,25)
-TsList3 = vcat(
-	120.0:100/6:220.0,#7个
-	fill(220.0,11),
-	220.0:-100/6:120.0
-)
 
-line_result = getTemperatureLineCost(TsList3;
-	COPLowFunction=designParameters.COPLowFunction,
-	hourlyTariffFunction=designParameters.hourlyTariffFunction,   # 电价函数
-	heatConsumptionPowerFunction=designParameters.heatConsumptionPowerFunction,  # 用热负载函数
-	TairFunction=designParameters.TairFunction,# 环境温度函数
-
-	# 总循环参数
-	params=params,
-	TWaste=TWaste,# 废热回收蒸发器温度
-
-	# 求解参数
-	dt = dt,# 时间步长
-)
-
-result = optimizeFunction(
-	heatPumpServiceCoff,    # 热泵服务系数
-	heatStorageCapacity,    # 蓄热容量
-	maxheatStorageInputHour    # 蓄热电加热储满时长
-)
-
-result_line = getTemperatureLineCost(tline;
-	COPLowFunction=designParameters.COPLowFunction,
-	hourlyTariffFunction=designParameters.hourlyTariffFunction,   # 电价函数
-	heatConsumptionPowerFunction=designParameters.heatConsumptionPowerFunction,  # 用热负载函数
-	TairFunction=designParameters.TairFunction,# 环境温度函数
-
-	# 总循环参数
-	params=params,
-	TWaste=TWaste,# 废热回收蒸发器温度
-
-	# 求解参数
-	dt = dt,# 时间步长
-)
-
-plot(result[2])#Ts
-plot([result[3],result[4],result[5],result[6]])#P1
-plot(result[4])#P2
-plot(result[5])#P3
-plot(result[6])
-vscodedisplay(result[2])
-
-result_copy=deepcopy(result)
-
-vscodedisplay([result_copy[2] tline])

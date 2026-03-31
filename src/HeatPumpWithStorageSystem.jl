@@ -17,7 +17,7 @@ struct PressedWaterHighStorage <: EnergySystem end# 热泵+蓄热系统
 struct PressedWaterDoubleStorage <: EnergySystem end# 双蓄热系统
 struct PressedWaterDoubleStorageSimplified <: EnergySystem end# 双蓄热系统，简化了管路
 struct PressedWaterOneStorageOneCompressor <: EnergySystem end# 蓄热系统，只有一个压缩机
-
+struct OneStorage <: EnergySystem end# 电锅炉加蓄热
 
 
 export HeatPumpStoragePhaseChange,
@@ -26,6 +26,7 @@ export HeatPumpStoragePhaseChange,
 	PressedWaterDoubleStorageSimplified,
 	PressedWaterDoubleStorageOneCompressor,
 	PressedWaterOneStorageOneCompressor,
+	OneStorage,
 	SystemStructure,RecycleStruct
 
 abstract type SystemObjectiveType end
@@ -81,18 +82,36 @@ export SystemParameters,SystemVariables
 export getMinimumCost,getMinimumCost_MILP	#导出
 export getCOPbyMode
 
-dirname = joinpath(pwd(), "src", "designOptimization")
+"""双层优化问题的经济性参数"""
+abstract type AbstractFinanceParameters end
+
+"""设计优化参数结构体"""
+abstract type DesignOptimizeInterface end
+
+dirname = joinpath(pwd(), "src", "designOptimization","designInterface")
 for file in readdir(dirname)
 	srcpath = joinpath(dirname, file)
+    println("design include:",file)
 	if isfile(srcpath)
 		include(srcpath)
 	end
 end
+
+dirname = joinpath(pwd(), "src", "designOptimization","operationInterface")
+
+for file in readdir(dirname)
+	srcpath = joinpath(dirname, file)
+    println("operation include:",file)
+	if isfile(srcpath)
+		include(srcpath)
+	end
+end
+
 # 导出用来与设计优化联合的类型和函数
 export DesignOptimizeInput,DesignOptimizeVariables,DesignOptimizeParameters
 export generateDesignOptimizeParameters,generateOperationFunction
 
-export FinanceParameters
+export FinanceParameters,OneStorageFinanceParameters
 export totalPresentWorth, get_bb_cost,bboptimize
 
 end # module HeatPumpWithStorageSystem

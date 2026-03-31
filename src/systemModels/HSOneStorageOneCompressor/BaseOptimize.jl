@@ -206,24 +206,25 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
     if TsStart<Tuse-params.dT<TsEnd
         dt1=dt*(Tuse-params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
-        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,Tuse-params.dT,dt1,params,sysVariables)
-        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(Tuse-params.dT,TsEnd,dt2,params,sysVariables)
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,Tuse-params.dT,dt1,params,sysVariables;show=show)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(Tuse-params.dT,TsEnd,dt2,params,sysVariables;show=show)
         return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
     end
 
     if TsStart>Tuse+params.dT>TsEnd
         dt1=dt*(Tuse+params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
-        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,Tuse+params.dT,dt1,params,sysVariables)
-        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(Tuse+params.dT,TsEnd,dt2,params,sysVariables)
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,Tuse+params.dT,dt1,params,sysVariables;show=show)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(Tuse+params.dT,TsEnd,dt2,params,sysVariables;show=show)
         return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
     end
 
-    if (TsStart+params.dT-ThMax)*(TsEnd+params.dT-ThMax)<0
+    #if (TsStart+params.dT-ThMax)*(TsEnd+params.dT-ThMax)<0
+    if TsStart < ThMax-params.dT < TsEnd
         dt1=dt*(ThMax-params.dT-TsStart)/(TsEnd-TsStart)
         dt2=dt-dt1
-        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,ThMax-params.dT,dt1,params,sysVariables)
-        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(ThMax-params.dT,TsEnd,dt2,params,sysVariables)
+        C1, flag1, P11, P21, P31,Pe1=getMinimumCost(TsStart,ThMax-params.dT,dt1,params,sysVariables;show=show)
+        C2, flag2, P12, P22, P32,Pe2=getMinimumCost(ThMax-params.dT,TsEnd,dt2,params,sysVariables;show=show)
         return C1+C2, flag1&flag2, (P11*dt1+P12*dt2)/dt, (P21*dt1+P22*dt2)/dt, (P31*dt1+P32*dt2)/dt, (Pe1*dt1+Pe2*dt2)/dt 
     end
     
