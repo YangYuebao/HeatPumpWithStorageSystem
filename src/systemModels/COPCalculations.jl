@@ -560,3 +560,7 @@ function getOverlapCOP_fixMidTemperature(
 
 	return COPfunction
 end
+
+
+# 导入生成JuMP约束的文件
+#include(joinpath(pwd(),"src","systemModels","COPCalculate","COPPiecewise.jl"))

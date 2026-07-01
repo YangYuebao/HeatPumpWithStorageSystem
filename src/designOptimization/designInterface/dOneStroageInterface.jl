@@ -46,7 +46,7 @@ function totalPresentWorth(
 
 	# 总现值
 	pw = capitalCost + annualOperationCost * annuity_pv_factor
-	return pw      # 单位：元
+	return pw,capitalCost,annuity_pv_factor      # 单位：元
 end
 
 # 双层优化最低总成本
@@ -83,7 +83,7 @@ function get_bb_cost(::OneStorage,
 			heatStorageCapacity,
 			PeMax,
 		)
-		return totalCost
+		return totalCost[1]
 	end
 	return bb_cost
 end

@@ -1,7 +1,7 @@
 
 # 使用经济性优化需要在项目主目录下切换到calculations环境
 #=
-用于测试固定温度曲线下的计算函数 getTemperatureLineCost
+用于测试 getMinimumCost 这类函数的计算结果
 =#
 using Pkg
 #Pkg.activate("calculations")
@@ -16,14 +16,34 @@ using CoolProp
 发布分支design_optimize
 =#
 
-situation = "situation23"
+situation = "situation26_只热泵的运行结果"
 #第一步，指定设计条件变量
 #项目设计条件
 begin
-	hourlyTariff = zeros(24)
-	hourlyTariff[1:8] .= 1.0094
-	hourlyTariff[9:16] .= 0.658
-	hourlyTariff[17:24] .= 0.3725
+	hourly_tariff_ori = ones(48)
+	p = 1.7#1.7
+	pp = p * 1.2
+	v = 0.35
+	vv = v * 0.8
+
+	hourly_tariff_ori[1:12] .*= v
+	hourly_tariff_ori[23:26] .*= v
+	hourly_tariff_ori[29:30] .*= pp
+	hourly_tariff_ori[31:39] .*= p
+	hourly_tariff_ori[40:43] .*= pp
+	hourly_tariff_ori[44] *= p
+
+	hourlyTariff = hourly_tariff_ori * 0.7393
+
+	#=
+	heatConsumptionPower = vcat(
+		fill(0.0, 16),
+		fill(1.0, 8),
+		fill(0.0, 2),
+		fill(1.0, 8),
+		fill(0.0, 14),
+	)
+	=#
 
 	Tair = vcat(
 		fill(26.0, 7),
@@ -31,7 +51,15 @@ begin
 		fill(26.0, 11),
 	)
 
-	heatConsumptionPower = ones(24)
+	heatConsumptionPower = vcat(
+		fill(0.0, 16),
+		fill(1.0, 8),
+		fill(0.0, 2),
+		fill(1.0, 8),
+		fill(0.0, 14),
+	)
+
+	heatConsumptionPower = ones(48)
 
 	# 系数
 	#heatPumpServiceCoff = 0.5
@@ -39,7 +67,7 @@ begin
 	eta_s = 0.7							# 绝热效率
 	workingStartHour = 0                # 生产开始时间
 	workingHours = 24                   # 每日工作小时数
-	TWaste = 85.0                     	# 废热源温度
+	TWaste = 30.0                     	# 废热源温度
 	#Tair = 25.0                        # 外部环境温度
 	TCompressorIn = 115.0
 	maxTcHigh = 180.0
@@ -53,7 +81,7 @@ begin
 	dT = 0.01
 	#dt = 1/2# 时间步长过小会导致初始温度优化的目标不是一个单峰函数
 
-	dt = 1.0
+	dt = 0.5
 	smoother = 1e-8
 	Tuse = PropsSI("T","P",0.45e6,"Q",0,"water")-273.15
 	Tuse = 150.0
@@ -84,7 +112,7 @@ begin
 	# 年运行天数
 	annualDays = 300
 	# 运行年数
-	lifeYears = 6
+	lifeYears = 15
 end
 
 # 第二步，生成设计参数输入结构体
@@ -131,24 +159,24 @@ begin
 	# 1立方米的蓄热能量除以3600秒，得到1立方够用多久
 	hour_per_m3=1*900*4.275*(Tsmax-Tuse)/3600
 	storageHourCost = storageCost/hour_per_m3
-	finalStorageCost = storageCost*(storageInstallCoff+storageAnnualCost*p*(1-p^lifeYears)/(1-p))
+	finalStorageCost = storageHourCost*(storageInstallCoff+storageAnnualCost*p*(1-p^lifeYears)/(1-p))
 end
 
 
-# 第五步，现在可以调用函数进行优化了
+# 第六步，算运行优化结果
+result = optimizeFunction(1.0,0.0,1e8)
 
-# 1.7594
+include(joinpath(pwd(),"temp","plottool.jl"))
 
+plt = operation_result_plot(
+    0:dt:24,
+    hourlyTariff,
+    result;
+    w=0.45
+)
 
+#savefig(plt, "plots/plt_2.png")
 
-#=
- Info: 最优变量
-│   heatPumpServiceCoff = 0.12675378941319726
-│   heatStorageCapacity = 0.5095878178083123
-└   maxheatStorageInputHour = 7.96062243329475
-┌ Info: 最小总现值
-└   best_f = 5649.636713178115
-=#
 
 # 第六步，生成双层优化的目标函数
 fp=FinanceParameters(
@@ -160,85 +188,32 @@ fp=FinanceParameters(
 	annual_days = annualDays,        # 年运行天数
 	Discount_rate = discountRate,      # 折现率 
 )
-bb_cost = get_bb_cost(PressedWaterOneStorageOneCompressor(),optimizeFunction,fp)
-
-
-heatLoad=1.0
-heatPumpServiceCoff = 1.0
-heatStorageCapacity = 0.5
-maxheatStorageInputHour=10.0
-
-TsStart=175.0
-TsEnd=170.0
-dt=1.0
-
-params = getParams(heatPumpServiceCoff,heatStorageCapacity,maxheatStorageInputHour)
-sysVariables = SystemVariables(
-	heatLoad,
-	designParameters.COPLowFunction(TWaste, TCompressorIn + dT_EvaporationStandard),
-	26.0,
-	TWaste,
+annualOperationCost = result[1] * annualDays
+pw,capitalCost,annuity_pv_factor = totalPresentWorth(
+    PressedWaterOneStorageOneCompressor(),
+	fp,# 经济参数
+	result[1],          # 每日运行成本（元）
+	1.0,    # 热泵服务系数
+	0.0,    # 蓄热容量kwh
+	1e9, # 蓄热电加热储满时长h
 )
 
-#=
-[ Info: 内部检查结束
-(0.24808180185848658, true, 0.24634801692900746, 0.0017337849294791472, 0.0, 0.0)
-=#
-single_result = getMinimumCost(TsStart,TsEnd,dt,params,sysVariables;show=true)
+include(joinpath(pwd(),"temp","ParameterDocGenerator.jl"))
+generateDesignDoc(situation, designInput, designParameters, fp, joinpath(pwd(),"calculations",situation,situation*"_设计参数.md"))
 
-TsList2 = vcat(
-	175.0,
-	fill(170.0,20),
-	fill(175.0,4)
-)
-TsList1 = fill(120.0,25)
-TsList3 = vcat(
-	120.0:100/6:220.0,#7个
-	fill(220.0,11),
-	220.0:-100/6:120.0
-)
+println("""
+日运行费用：$(round(result[1],digits=3))
+年运行费用：$(round(annualOperationCost,digits=3))
+初投资费用：$(round(capitalCost,digits=3))
+总现值：$(round(pw,digits=3))
+折现系数：$(round(annuity_pv_factor,digits=3))
+""")
 
-line_result = getTemperatureLineCost(TsList3;
-	COPLowFunction=designParameters.COPLowFunction,
-	hourlyTariffFunction=designParameters.hourlyTariffFunction,   # 电价函数
-	heatConsumptionPowerFunction=designParameters.heatConsumptionPowerFunction,  # 用热负载函数
-	TairFunction=designParameters.TairFunction,# 环境温度函数
-
-	# 总循环参数
-	params=params,
-	TWaste=TWaste,# 废热回收蒸发器温度
-
-	# 求解参数
-	dt = dt,# 时间步长
+plt = operation_result_plot(
+    0:dt:24,
+    hourlyTariff,
+    result;
+    w=0.45
 )
 
-result = optimizeFunction(
-	heatPumpServiceCoff,    # 热泵服务系数
-	heatStorageCapacity,    # 蓄热容量
-	maxheatStorageInputHour    # 蓄热电加热储满时长
-)
-
-result_line = getTemperatureLineCost(tline;
-	COPLowFunction=designParameters.COPLowFunction,
-	hourlyTariffFunction=designParameters.hourlyTariffFunction,   # 电价函数
-	heatConsumptionPowerFunction=designParameters.heatConsumptionPowerFunction,  # 用热负载函数
-	TairFunction=designParameters.TairFunction,# 环境温度函数
-
-	# 总循环参数
-	params=params,
-	TWaste=TWaste,# 废热回收蒸发器温度
-
-	# 求解参数
-	dt = dt,# 时间步长
-)
-
-plot(result[2])#Ts
-plot([result[3],result[4],result[5],result[6]])#P1
-plot(result[4])#P2
-plot(result[5])#P3
-plot(result[6])
-vscodedisplay(result[2])
-
-result_copy=deepcopy(result)
-
-vscodedisplay([result_copy[2] tline])
+savefig(plt, joinpath(pwd(),"calculations",situation,"plot.png"))

@@ -355,7 +355,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 	nT = nTList[1]# 温度步数
 	half_nT = Int((nT - 1) / 2)
 	nt = length(tList)
-	TsList = fill(TcChangeToElec+10.0, nt)
+	TsList = fill(TcChangeToElec+15.0, nt)
 	#TsList = fill(Tsmin, nt)
 	TsMatrix = zeros(nT, nt)
 
@@ -493,7 +493,7 @@ function generateAndSolve(::PressedWaterOneStorageOneCompressor, ::MinimizeCost,
 			end
 		end
 		countAll += 1
-		println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
+		#println("countAll:$countAll", " dT_origin:$(round(dT_origin,digits=4))", " cost:$(round(cost,digits=4))")
 	end
 
 	# if countAll==maxcount

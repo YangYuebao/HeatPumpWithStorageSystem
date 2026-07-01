@@ -1,6 +1,8 @@
 module HeatPumpWithStorageSystem
 
-using JuMP, HiGHS, Ipopt # 优化接口JuMP，优化器HiGHS
+
+
+using JuMP, HiGHS, Ipopt, COPT # 优化接口JuMP，优化器HiGHS
 using LinearAlgebra
 using Interpolations
 using CoolProp# 物性库
@@ -17,6 +19,7 @@ struct PressedWaterHighStorage <: EnergySystem end# 热泵+蓄热系统
 struct PressedWaterDoubleStorage <: EnergySystem end# 双蓄热系统
 struct PressedWaterDoubleStorageSimplified <: EnergySystem end# 双蓄热系统，简化了管路
 struct PressedWaterOneStorageOneCompressor <: EnergySystem end# 蓄热系统，只有一个压缩机
+struct PressedWaterOneStorageOneCompressor_MILP <: EnergySystem end# 蓄热系统，只有一个压缩机
 struct OneStorage <: EnergySystem end# 电锅炉加蓄热
 
 
@@ -26,6 +29,7 @@ export HeatPumpStoragePhaseChange,
 	PressedWaterDoubleStorageSimplified,
 	PressedWaterDoubleStorageOneCompressor,
 	PressedWaterOneStorageOneCompressor,
+	#PressedWaterOneStorageOneCompressor_MILP,
 	OneStorage,
 	SystemStructure,RecycleStruct
 
@@ -81,6 +85,8 @@ export @unpackParameters
 export SystemParameters,SystemVariables
 export getMinimumCost,getMinimumCost_MILP	#导出
 export getCOPbyMode
+#export MILPModelParameters, MILPModelResult
+#export computeCOPdiscretization
 
 """双层优化问题的经济性参数"""
 abstract type AbstractFinanceParameters end
@@ -112,6 +118,7 @@ export DesignOptimizeInput,DesignOptimizeVariables,DesignOptimizeParameters
 export generateDesignOptimizeParameters,generateOperationFunction
 
 export FinanceParameters,OneStorageFinanceParameters
+#,MILPFinanceParameters
 export totalPresentWorth, get_bb_cost,bboptimize
 
 end # module HeatPumpWithStorageSystem

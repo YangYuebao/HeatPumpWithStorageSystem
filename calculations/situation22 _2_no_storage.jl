@@ -18,7 +18,7 @@ using CoolProp
 发布分支design_optimize
 =#
 
-situation = "situation22"
+situation = "situation22_2"
 #第一步，指定设计条件变量
 #项目设计条件
 begin
@@ -142,6 +142,11 @@ designParameters = generateDesignOptimizeParameters(PressedWaterOneStorageOneCom
 # 第四步，生成带优化的目标函数
 optimizeFunction,getCount,getControlResult,getParams = generateOperationFunction(PressedWaterOneStorageOneCompressor(),designParameters,designInput)
 
+optimizeFunction_noStorage(
+	heatPumpServiceCoff::Float64,    # 热泵服务系数
+    maxheatStorageInputHour::Float64
+) = optimizeFunction(heatPumpServiceCoff,0.0,maxheatStorageInputHour)
+
 # 第五步，计算一些经济性参数
 begin
 	p=1/(1+discountRate)
@@ -156,21 +161,10 @@ begin
 	# 1立方米的蓄热能量除以3600秒，得到1立方够用多久
 	hour_per_m3=1*900*4.275*(Tsmax-Tuse)/3600
 	storageHourCost = storageCost/hour_per_m3
-	finalStorageCost = storageHourCost*(storageInstallCoff+storageAnnualCost*p*(1-p^lifeYears)/(1-p))
+	finalStorageCost = storageCost*(storageInstallCoff+storageAnnualCost*p*(1-p^lifeYears)/(1-p))
 end
 
 # 现在可以调用函数进行优化了
-
-
-# 1.7594
-heatPumpServiceCoff = 1.0
-heatStorageCapacity = 1.0
-maxheatStorageInputHour=1.0
-@time result = optimizeFunction(
-	heatPumpServiceCoff,    # 热泵服务系数
-	heatStorageCapacity,    # 蓄热容量
-	maxheatStorageInputHour    # 蓄热电加热储满时长
-)
 
 #=
 plt=plot(result[2],xlabel="Hour",ylabel="Temerature ℃",title="Heat Storage Temperature")
@@ -198,6 +192,8 @@ fp=FinanceParameters(
 )
 bb_cost = get_bb_cost(PressedWaterOneStorageOneCompressor(),optimizeFunction,fp)
 
+bb_cost_noStorage(x::Vector) = bb_cost([x[1],0.0,x[2]])
+
 # 第七步，制定收敛性检查的回调函数
 # 创建自定义的实时绘图对象
 mutable struct FitnessPlot
@@ -224,9 +220,10 @@ function monitor_callback(fp::FitnessPlot, opt_controller)
 	fp.iteration_count += 1
 	fp.evaluation_count = current_evals
 	
-	@info "触发回调,最优解：$(round.(current_best_solution,digits=3)), 最佳适应度值：$(current_best_fitness)"
+	
 
-	if fp.verbose #&& plot.iteration_count % 10 == 0
+	if fp.verbose && fp.iteration_count % 50 == 0
+		@info "触发回调,最优解：$(round.(current_best_solution,digits=3)), 最佳适应度值：$(current_best_fitness)"
         println("迭代 $(fp.iteration_count): 最小成本 = $(fp.fitness_data[end])")
 		plt = plot(fp.fitness_data,xlabel="iteration times",ylabel="least cost",label=:none,title="optimize value vs iteration times")
 		display(plt)
@@ -237,21 +234,20 @@ fitnessPlotController = FitnessPlot([],[[]],0,0,true)
 
 search_range = [
     (0.1, 1.5),   # heatPumpServiceCoff
-    (0.0, 10.0),  # heatStorageCapacity  kWh
     (0.0, 10.0)]  # maxheatStorageInputHour h
 
 good_guess = [
-	[1.0,8.0,4.0]
+	[1.0,1.0]
 ]
 
 @info "开始进行黑盒优化..."
 @info "线程数:$(Threads.nthreads())"
-@time res = bboptimize(bb_cost,good_guess;
+@time res = bboptimize(bb_cost_noStorage,good_guess;
     SearchRange=search_range,
     MaxSteps=1500,      # 最多迭代步数
-    NumDimensions=3,
+    NumDimensions=2,
 	Method = :adaptive_de_rand_1_bin_radiuslimited,
-	PopulationSize = 12,
+	PopulationSize = 8,
     TraceInterval=1.0,
     TraceMode=:compact,
 	CallbackFunction = oc -> monitor_callback(fitnessPlotController,oc),
@@ -259,7 +255,9 @@ good_guess = [
 	NThreads=4
 )
 
-bb_cost(0.5,1.0,10.0)
+#=
+触发回调,最优解：[0.948, 0.574], 最佳适应度值：13068.535262269126
+=#
 
 println("调用次数：$(getCount())")
 
@@ -269,7 +267,8 @@ best_f = bbo.best_fitness(res)
 parms=getParams(best_x...)
 
 @info "优化结束"
-@info "最优变量" heatPumpServiceCoff = best_x[1] heatStorageCapacity = best_x[2] maxheatStorageInputHour = best_x[3]
+@info "最优变量" heatPumpServiceCoff = best_x[1] heatStorageCapacity = 0.0
+maxheatStorageInputHour = best_x[2]
 @info "最小总现值" best_f
 
 
@@ -277,26 +276,10 @@ parms=getParams(best_x...)
 @info "蓄热容量" parms.cpm
 
 #=
-8小时
+[ Info: 优化结束
 ┌ Info: 最优变量
-│   heatPumpServiceCoff = 0.9484103157391853
-│   heatStorageCapacity = 8.928984078929077e-12
-└   maxheatStorageInputHour = 9.845687945569416
-
+│   heatStorageCapacity = 0.9500000936010964
+└   PeMax = 1.000000094936982     
 ┌ Info: 最小总现值
-└   best_f = 11861.64753332582 
-
-┌ Info: 电功率
-└   parms.PeMax = 0.051589684261721565
-
-┌ Info: 蓄热容量
-└   parms.cpm = 1.238475042528518e-13
-=#
-#=
-[ Info: 触发回调,最优解：[0.963, 0.04, 8.594]
-=#
-#=
-[ Info: 触发回调,最优解：[0.101, 3.786, 9.873], 最佳适应度值：6859.0106234582545
-迭代 931: 最小成本 = 6859.0106234582545
-67444.16 secs, 954 evals, 931 steps, improv/step: 0.193 (last = 0.0000), fitness=6859.010623458
+└   best_f = 24575.384166055388
 =#

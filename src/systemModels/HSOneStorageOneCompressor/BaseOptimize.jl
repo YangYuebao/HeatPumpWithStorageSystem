@@ -72,7 +72,10 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
     # delta[1] mode 2 can work with mode 1 and 3
     # delta[2] mode 3 can't work
     #delta=[(TsMid+params.dT>=params.Tuse),TsMid+params.dT>=params.ThMax]
-    delta=[(TsMid+params.dT>=params.Tuse)||(120.0<=TsEnd <=120.0+1e-6),TsMid+params.dT>=params.ThMax]
+    delta=[
+        (TsMid+params.dT>=params.Tuse),#||(120.0<=TsEnd <=120.0+1e-6),
+        TsMid+params.dT>=params.ThMax
+    ]
     # Check if status valid by temperature
     if !(x1+x2<=1+delta[1] &&
         x2+x3<=1 &&
@@ -112,6 +115,7 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
             params.COPWater(TsMid-params.dT,params.Tuse),
             1.0,
             sysVariables.COPl*coph1/(coph1+sysVariables.COPl-1)
+        #=
         elseif (120.0<=TsEnd<120.0+1e-6)
             # 末态温度为蓄热的最低温度，这时候应该先蓄热供热再热泵供热，联合起来
             #println("末态温度120℃")
@@ -122,6 +126,7 @@ function getCOPbyMode(x1::Union{Int,Bool},x2::Union{Int,Bool},x3::Union{Int,Bool
             params.COPWater(TsMid-params.dT,params.Tuse),
             1.0,
             sysVariables.COPl*coph1/(coph1+sysVariables.COPl-1)
+        =#
         else
             return false,1.0,1.0,1.0,1.0
         end
@@ -297,6 +302,7 @@ function getMinimumCost(TsStart::Real,TsEnd::Real,dt::Real,params::SystemParamet
 
         A=[
             x1*coph1 x2*coph2 recycle[2]*recycleValid[1]*cp_cw/latentHeat*(Ts+dT-Tuse) 1.0 0.0;
+            #0.0 x2*coph2 recycle[2]*recycleValid[1]*cp_cw/latentHeat*(Ts+dT-Tuse) 1.0 0.0;
             0.0 -x2*(coph2-1) x3*coph3 0.0 1.0;
             0.0 0.0 0.0 -1.0 -1.0;
             -1.0 0.0 -1.0 0.0 0.0

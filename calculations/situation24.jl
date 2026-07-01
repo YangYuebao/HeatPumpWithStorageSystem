@@ -113,9 +113,9 @@ designInput = DesignOptimizeInput(;
 	refrigerant=refrigerant
 )
 # 第三步，生成设计参数常数结构体
-designParameters = generateDesignOptimizeParameters(designInput)
+designParameters = generateDesignOptimizeParameters(PressedWaterOneStorageOneCompressor(),designInput)
 # 第四步，生成带优化的目标函数
-optimizeFunction,getCount,getControlResult,getParams = generateOperationFunction(designParameters,designInput)
+optimizeFunction,getCount,getControlResult,getParams = generateOperationFunction(PressedWaterOneStorageOneCompressor(),designParameters,designInput)
 
 # 第五步，计算一些经济性参数
 begin
@@ -131,7 +131,7 @@ begin
 	# 1立方米的蓄热能量除以3600秒，得到1立方够用多久
 	hour_per_m3=1*900*4.275*(Tsmax-Tuse)/3600
 	storageHourCost = storageCost/hour_per_m3
-	finalStorageCost = storageCost*(storageInstallCoff+storageAnnualCost*p*(1-p^lifeYears)/(1-p))
+	finalStorageCost = storageHourCost*(storageInstallCoff+storageAnnualCost*p*(1-p^lifeYears)/(1-p))
 end
 
 
@@ -160,7 +160,7 @@ fp=FinanceParameters(
 	annual_days = annualDays,        # 年运行天数
 	Discount_rate = discountRate,      # 折现率 
 )
-bb_cost = get_bb_cost(optimizeFunction,fp)
+bb_cost = get_bb_cost(PressedWaterOneStorageOneCompressor(),optimizeFunction,fp)
 
 
 heatLoad=0.0
