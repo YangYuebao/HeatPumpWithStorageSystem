@@ -32,7 +32,7 @@ end
 #项目设计条件
 # 跳过heatPumpServiceCoff+maxheatStorageInputHour < 1的工况
 heatPumpServiceCoff_list = 0.4:0.2:1.2						# 5
-heatStorageCapacity_list = 2.0:1.0:7.0						# 7
+heatStorageCapacity_list = 2.0:1.0:6						# 7
 maxheatStorageInputHour_list = [0.5,1.0,1.5,2.5,3.5,4.5]	# 6
 
 for hs in heatStorageCapacity_list
@@ -110,7 +110,7 @@ begin
 	end
 	dt_list *= dt
 
-	inner_divide = 1
+	inner_divide = 2
 
 	dt_list = repeat(dt_list, inner = inner_divide) / inner_divide
 	segmentHeatLoad = repeat(segmentHeatLoad, inner = inner_divide)
@@ -337,7 +337,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 			# 方式一：生成初值（全程热泵供热）
 			# initial = generateInitialSolution_HeatPumpOnly(milp_params)
 			model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
-
+			set_attribute(model, "TimeLimit", 10)
 			@time result, model = solve_model(
 				PressedWaterOneStorageOneCompressor_MILP(),
 				model,
@@ -346,7 +346,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 				#callback = (cb_data, cb_context, model) -> incumbent_callback(cb_data, cb_context, model, convergence_data, milp_params)
 			)
 
-			println("算例$(case_count)/$(n_cases)",round(heatPumpServiceCoff, digits=1)," ",round(heatStorageCapacity, digits=1)," ",round(maxheatStorageInputHour, digits=1))
+			println("算例  $(case_count)/$(n_cases)  ",round(heatPumpServiceCoff, digits=1)," ",round(heatStorageCapacity, digits=1)," ",round(maxheatStorageInputHour, digits=1))
 			# 写入结果
 			if result.isFeasible
 				annualOperationCost = result.C_operation * annualDays
@@ -475,14 +475,20 @@ function batch_plot_results()
 					data.operationResults.P2,
 					data.operationResults.P3,
 					data.operationResults.P_el,
-					zeros(length(data.operationResults.Ts))
+					zeros(length(data.operationResults.P1))
 				]
 				
 				png_path = joinpath(folder_path, replace(json_file, ".json" => ".png"))
 				
+				n_time_points = length(data.operationResults.Ts)
+				n_segments = length(data.operationResults.P1)
+				
+				time_list = collect(range(0, stop=24, length=n_time_points))
+				tariff_list = ones(n_segments)
+				
 				plt = operation_result_plot(
-					0:dt:24,
-					hourly_tariff_ori,
+					time_list,
+					tariff_list,
 					result;
 					w=0.45
 				)
@@ -525,7 +531,7 @@ function plot_economic_analysis()
 			try
 				data = JSON3.read(read(json_path, String))
 				
-				if data.status == "success"
+				if data.status == "success" && data.economicResults.totalPresentWorth !== nothing && data.economicResults.capitalCost !== nothing
 					push!(all_data, (
 						heatPumpCapacity = data.caseParameters.heatPumpServiceCoff,
 						storageCapacity = data.caseParameters.heatStorageCapacity,

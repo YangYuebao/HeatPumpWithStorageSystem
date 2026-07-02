@@ -23,17 +23,17 @@ situation = "situation29"
 #项目设计条件
 begin
 	heatPumpServiceCoff, heatStorageCapacity, maxheatStorageInputHour = 1.0, 6.0, 4.0
-	#=
+	
 	hourlyTariff = zeros(24)
-	hourlyTariff[1:8] .= 1.0094
+	hourlyTariff[1:8] .= 99.0094
 	hourlyTariff[9:16] .= 0.658
 	hourlyTariff[17:24] .= 0.3725
 
 	Tair = fill(85.0,25)
 
 	heatConsumptionPower = ones(24)
-	=#
 	
+	#=
 	hourly_tariff_ori = ones(48)
 	p = 4.7#1.7
 	pp = p * 1.2
@@ -56,8 +56,8 @@ begin
 	)
 
 	Tair = fill(85.0, 49)
-	
-	dt = 0.5
+	=#
+	dt = 1.0
 	if length(hourlyTariff) != length(heatConsumptionPower) || length(hourlyTariff) != length(Tair) - 1
 		@warn "hourlyTariff, heatConsumptionPower, and Tair must have the same length"
 	end
@@ -488,32 +488,47 @@ end
 # 方式一：生成初值（全程热泵供热）
 initial = generateInitialSolution_HeatPumpOnly(milp_params)
 model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
-println("开始求解MILP模型...")
-
-#优化求解参数
-MOI.set(model, MOI.RawOptimizerAttribute("TuneMode"), 0)
-MOI.set(model, MOI.RawOptimizerAttribute("TuneMethod"), 0)
-MOI.set(model, MOI.RawOptimizerAttribute("TuneTimeLimit"), 1200.0)
-MOI.set(model, MOI.RawOptimizerAttribute("TuneOutputLevel"), 2)
-
-optimizer = JuMP.backend(model)
-prob = optimizer.prob
-COPT.COPT_Tune(prob)
-num_results = Ref{Cint}()
-COPT.COPT_GetIntAttr(prob, "TuneResults", num_results)
-println("调优结果数量: ", num_results[])
-COPT.COPT_LoadTuneParam(prob, 0)
-
-COPT.COPT_WriteTuneParam(prob, 0, joinpath(pwd(),"calculations",situation, "best_tune.par"))
-println("已保存最佳调优结果到 best_tune.par")
-#COPT.COPT_ReadParam(new_prob, "best_tune.par")
-#println("已从 best_tune.par 加载参数")
-
-#=
+#set_attribute(model, "TimeLimit", 30)
+#fix(model[:Ts][5], 120.0,force=true)
 @time result, model = solve_model(PressedWaterOneStorageOneCompressor_MILP(), model, milp_params;
-	#initial_solution = initial,
+	initial_solution = initial,
 	#callback = (cb_data, cb_context, model) -> incumbent_callback(cb_data, cb_context, model, convergence_data, milp_params)
 )
+# 测试
+#=
+	fix(model[:Ts][5], 120.0,force=true)
+	fix(model[:Ts][1], 220.0,force=true)
+	#unfix(model[:Ts][1])
+	set_attribute(model, "TimeLimit", 3)
+
+	optimize!(model)
+	value.(model[:Ts])
+	isFeasible = primal_status(model) in [FEASIBLE_POINT, NEARLY_FEASIBLE_POINT]
+=#
+println("开始求解MILP模型...")
+# 调优
+#=
+	#优化求解参数
+	MOI.set(model, MOI.RawOptimizerAttribute("TuneMode"), 0)
+	MOI.set(model, MOI.RawOptimizerAttribute("TuneMethod"), 0)
+	MOI.set(model, MOI.RawOptimizerAttribute("TuneTimeLimit"), 1200.0)
+	MOI.set(model, MOI.RawOptimizerAttribute("TuneOutputLevel"), 2)
+
+	optimizer = JuMP.backend(model)
+	prob = optimizer.prob
+	COPT.COPT_Tune(prob)
+	num_results = Ref{Cint}()
+	COPT.COPT_GetIntAttr(prob, "TuneResults", num_results)
+	println("调优结果数量: ", num_results[])
+	COPT.COPT_LoadTuneParam(prob, 0)
+
+	COPT.COPT_WriteTuneParam(prob, 0, joinpath(pwd(),"calculations",situation, "best_tune.par"))
+	println("已保存最佳调优结果到 best_tune.par")
+	#COPT.COPT_ReadParam(new_prob, "best_tune.par")
+	#println("已从 best_tune.par 加载参数")
+=#
+
+
 
 
 # 输出结果
@@ -551,7 +566,10 @@ if result.isFeasible
 else
 	println("模型不可行，请检查参数设置！")
 end
-=#
+
+
+
+
 println("\n========== 求解结束 ==========")
 
 # =============================================================

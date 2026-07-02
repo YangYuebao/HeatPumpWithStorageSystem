@@ -145,10 +145,25 @@ function getCOP_piecewise_data(
     n = length(t_list)-1
     
     # COP函数定义
-    COP1(Te, Ts) = designParameters.COPOverlapFunction(Te, max(designParameters.Tuse, Ts + designParameters.dT_EvaporationStandard))
+    function COP1(Te, Ts)
+        if Ts + designParameters.dT_EvaporationStandard > designParameters.ThMax
+            return 1.0
+        end
+        return designParameters.COPOverlapFunction(Te, max(designParameters.Tuse, Ts + designParameters.dT_EvaporationStandard))
+    end
     COP2(Ts) = designParameters.COPWater(Ts - designParameters.dT_EvaporationStandard, designParameters.Tuse)
-    COP3(Te, Ts) = designParameters.COPOverlapFunction(Te, Ts + designParameters.dT_EvaporationStandard)
-    COPw(Ts) = designParameters.COPLowFunction(designParameters.TCompressorIn, Ts + designParameters.dT_EvaporationStandard)
+    function COP3(Te, Ts)
+        if Ts + designParameters.dT_EvaporationStandard > designParameters.ThMax
+            return 1.0
+        end
+        return designParameters.COPOverlapFunction(Te, Ts + designParameters.dT_EvaporationStandard)
+    end
+    function COPw(Ts)
+        if Ts > designParameters.ThMax
+            return 1.0
+        end
+        return designParameters.COPWater(designParameters.TCompressorIn, Ts)
+    end
     
     # 分档数量
     m1 = length(T_s_1g_list) - 1
@@ -165,7 +180,7 @@ function getCOP_piecewise_data(
     # COP1取后一个温度（蓄热温度升高）
     for i in 1:n
         for j in 1:m1
-            COP1v[j, i] = COP1(designParameters.TairFunction(t_list[i])-designParameters.dT_EvaporationStandard, T_s_1g_list[j+1])
+            COP1v[j, i] = COP1(designParameters.TairFunction(t_list[i])-designParameters.dT_EvaporationStandard, T_s_1g_list[j])
         end
     end
     
@@ -179,7 +194,7 @@ function getCOP_piecewise_data(
     # COP3取后一个温度（蓄热温度升高）
     for i in 1:n
         for j in 1:m3
-            COP3v[j, i] = COP3(designParameters.TairFunction(t_list[i])-designParameters.dT_EvaporationStandard, T_s_3g_list[j+1])
+            COP3v[j, i] = COP3(designParameters.TairFunction(t_list[i])-designParameters.dT_EvaporationStandard, T_s_3g_list[j])
         end
     end
     
@@ -237,14 +252,14 @@ function generate_model(
         model = direct_model(COPT.Optimizer())
         # COPT参数设置
         # set_silent(model)
-        set_attribute(model, "TimeLimit", 60*18)
+        set_attribute(model, "TimeLimit", 60*20)
         set_attribute(model, "Presolve", 3)
         set_attribute(model, "Threads", 24)
 
         set_attribute(model, "CutLevel", 2)            # 增强割平面
         set_attribute(model, "RootCutRounds", 20)      # 根节点多轮割
         set_attribute(model, "StrongBranching", 1)     # 启用强分支
-        #set_attribute(model, "RelGap", 0.01)          # 设置一个合理的最优间隙，避免过度证明
+        set_attribute(model, "RelGap", 0.05)          # 设置一个合理的最优间隙，避免过度证明
 
         # 2. 根节点割平面强度与轮数
         # 作用: 专门控制根节点上的割。根节点割得好，能大幅提升初始下界。
@@ -298,7 +313,7 @@ function generate_model(
     ∑_{k=1}^{8} s_k,i = 1
     """
     # 定义状态变量 (使用 SOS1 约束)
-    @variable(model, s[1:8, 1:n] >= 0)
+    @variable(model, 0 <= s[1:8, 1:n] <= 1)
     
     # 文档2.1.1节: 状态唯一性约束
     @constraint(model, state_unique[i=1:n], sum(s[k, i] for k=1:8) == 1)
@@ -344,7 +359,7 @@ function generate_model(
     δ̃_i = 1 when δ_su,i = 1 AND δ_su,i+1 = 0
     """
     @variable(model, delta_su[1:n], Bin)
-    @variable(model, delta_tilde[1:n] >= 0)
+    @variable(model, 0 <= delta_tilde[1:n] <= 1)
 
     """
     文档2.1.2.4节:
@@ -403,13 +418,13 @@ function generate_model(
     ∑_{j=1}^{m} z_j,i = 1
     """
     # COP分档选择变量 z_{1,2,3,w,i,j} - 使用 SOS1 约束
-    @variable(model, z1[1:n, 1:m1] >= 0)
-    @variable(model, z2[1:n, 1:m2] >= 0)
-    @variable(model, z3[1:n, 1:m3] >= 0)
-    @variable(model, zw[1:n, 1:mw] >= 0)
+    @variable(model, 0 <= z1[1:n, 1:m1] <= 1)
+    @variable(model, 0 <= z2[1:n, 1:m2] <= 1)
+    @variable(model, 0 <= z3[1:n, 1:m3] <= 1)
+    @variable(model, 0 <= zw[1:n, 1:mw] <= 1)
 
-    @variable(model, w1[1:n, 1:m1] >= 0)
-    @variable(model, w3[1:n, 1:m3] >= 0)
+    @variable(model, 0 <= w1[1:n, 1:m1] <= 1)
+    @variable(model, 0 <= w3[1:n, 1:m3] <= 1)
     
     # 添加 SOS1 约束和唯一性约束
     for i in 1:n
@@ -431,16 +446,16 @@ function generate_model(
     end
     
     # COP估计值 COP_{1e,2e,3e,we,i}
-    @variable(model, COP1e[1:n] >= 0)
-    @variable(model, COP2e[1:n] >= 0)
-    @variable(model, COP3e[1:n] >= 0)
-    @variable(model, COPwe[1:n] >= 0)
+    @variable(model, 0 <= COP1e[1:n] <= 21.0)
+    @variable(model, 0 <= COP2e[1:n] <= 21.0)
+    @variable(model, 0 <= COP3e[1:n] <= 21.0)
+    @variable(model, 0 <= COPwe[1:n] <= 21.0)
     
     # COP实际值 COP_{1,2,3,w,i}
-    @variable(model, COP1[1:n] >= 0)
-    @variable(model, COP2[1:n] >= 0)
-    @variable(model, COP3[1:n] >= 0)
-    @variable(model, COPw[1:n] >= 0)
+    @variable(model, 0 <= COP1[1:n] <= 21.0)
+    @variable(model, 0 <= COP2[1:n] <= 21.0)
+    @variable(model, 0 <= COP3[1:n] <= 21.0)
+    @variable(model, 0 <= COPw[1:n] <= 21.0)
 
     """
     文档2.2.1节: y1,i = s5 || s8
@@ -449,11 +464,12 @@ function generate_model(
     y1 ≥ s8
     y1 ≥ 0
     """
-    @variable(model, y1[1:n] >= 0)
+    @variable(model, 0 <= y1[1:n] <= 1)
     @constraint(model, y1_upper[i=1:n], y1[i] <= s[5, i] + s[8, i])
     @constraint(model, y1_s5[i=1:n], y1[i] >= s[5, i])
     @constraint(model, y1_s8[i=1:n], y1[i] >= s[8, i])
 
+    
     """
     文档2.2.1节:
     ∑_{j=1}^{m1} z1,i,j = 1
@@ -463,15 +479,15 @@ function generate_model(
     对于 j=2,...,m1-1:
         T_s,i ≥ T_s,1g,i,j-1 + M4·(1-z1,i,j)
         T_s,i ≤ T_s,1g,i,j + M4·(1-z1,i,j)
-    """
+    """    
     for i in 1:n
-        @constraint(model, COP1e[i] == sum(params.COP1v[j, i] * z1[i, j] for j=1:m1))
+        #@constraint(model, COP1e[i] == sum(params.COP1v[j, i] * z1[i, j] for j=1:m1))
         if m1 > 1
             @constraint(model, Ts[i] <= params.T1g[i, 2] + M1 * (1 - z1[i, 1]))
             @constraint(model, Ts[i] >= params.T1g[i, m1] - M1 * (1 - z1[i, m1]))            
             for j in 2:m1-1
-                @constraint(model, Ts[i] >= params.T1g[i, j] - M4 * (1 - z1[i, j]))
-                @constraint(model, Ts[i] <= params.T1g[i, j+1] + M4 * (1 - z1[i, j]))
+                @constraint(model, Ts[i] >= params.T1g[i, j] - M1 * (1 - z1[i, j]))
+                @constraint(model, Ts[i] <= params.T1g[i, j+1] + M1 * (1 - z1[i, j]))
             end
         end
     end
@@ -515,8 +531,8 @@ function generate_model(
             @constraint(model, Ts[i] <= params.T2g[i, 2] + M1 * (1 - z2[i, 1]))
             @constraint(model, Ts[i] >= params.T2g[i, m2] - M1 * (1 - z2[i, m2]))
             for j in 2:m2-1
-                @constraint(model, Ts[i] >= params.T2g[i, j] - M4 * (1 - z2[i, j]))
-                @constraint(model, Ts[i] <= params.T2g[i, j+1] + M4 * (1 - z2[i, j]))
+                @constraint(model, Ts[i] >= params.T2g[i, j] - M1 * (1 - z2[i, j]))
+                @constraint(model, Ts[i] <= params.T2g[i, j+1] + M1 * (1 - z2[i, j]))
             end
         end
         @constraint(model, COP2[i] == COP2e[i])
@@ -529,11 +545,13 @@ function generate_model(
     温度分档约束同COP1
     """
     for i in 1:n
-        @constraint(model, COP3e[i] == sum(params.COP3v[j, i] * z3[i, j] for j=1:m3))
+        #@constraint(model, COP3e[i] == sum(params.COP3v[j, i] * z3[i, j] for j=1:m3))
         if m3 > 1
+            @constraint(model, Ts[i] <= params.T3g[i, 2] + M1 * (1 - z3[i, 1]))
+            @constraint(model, Ts[i] >= params.T3g[i, m3] - M1 * (1 - z3[i, m3]))
             for j in 2:m3-1
-                @constraint(model, Ts[i] >= params.T3g[i, j] - M4 * (1 - z3[i, j]))
-                @constraint(model, Ts[i] <= params.T3g[i, j+1] + M4 * (1 - z3[i, j]))
+                @constraint(model, Ts[i] >= params.T3g[i, j] - M1 * (1 - z3[i, j]))
+                @constraint(model, Ts[i] <= params.T3g[i, j+1] + M1 * (1 - z3[i, j]))
             end
         end
     end
@@ -568,11 +586,11 @@ function generate_model(
     for i in 1:n
         @constraint(model, COPwe[i] == sum(params.COPwv[j, i] * zw[i, j] for j=1:mw))
         if mw > 1
-            @constraint(model, Ts[i] <= params.Twg[i, 1] + M1 * (1 - zw[i, 1]))
+            @constraint(model, Ts[i] <= params.Twg[i, 2] + M1 * (1 - zw[i, 1]))
             @constraint(model, Ts[i] >= params.Twg[i, mw] - M1 * (1 - zw[i, mw]))
             for j in 2:mw-1
-                @constraint(model, Ts[i] >= params.Twg[i, j] - M4 * (1 - zw[i, j]))
-                @constraint(model, Ts[i] <= params.Twg[i, j+1] + M4 * (1 - zw[i, j]))
+                @constraint(model, Ts[i] >= params.Twg[i, j] - M1 * (1 - zw[i, j]))
+                @constraint(model, Ts[i] <= params.Twg[i, j+1] + M1 * (1 - zw[i, j]))
             end
         end
         @constraint(model, COPw[i] == COPwe[i])
@@ -594,8 +612,8 @@ function generate_model(
     
     功率约束表(文档2.3.1节):
     """
-    @variable(model, P_k_s[1:8, 1:n, 1:3] >= 0)  # P_{k,i,j}^s
-    @variable(model, P_k_e[1:8, 1:n, 1:3] >= 0)  # P_{k,i,j}^e
+    @variable(model, 0 <= P_k_s[1:8, 1:n, 1:3] <= 5)  # P_{k,i,j}^s
+    @variable(model, 0 <= P_k_e[1:8, 1:n, 1:3] <= 5)  # P_{k,i,j}^e
     
     # 根据功率约束表(文档2.3.1节)，某些功率恒为0
     # k=1: 只有P_1^s非零
@@ -648,8 +666,8 @@ function generate_model(
     P_e^l: 电加热为用热负荷补热的功率
     P_e^s: 电加热为蓄热储热的功率
     """
-    @variable(model, P_el[1:n] >= 0)  # P_{e,i}^l
-    @variable(model, P_es[1:n] >= 0)  # P_{e,i}^s
+    @variable(model, 0 <= P_el[1:n] <= 5)  # P_{e,i}^l
+    @variable(model, 0 <= P_es[1:n] <= 5)  # P_{e,i}^s
 
     # 计算总功率 P_{i,j}
     @expression(model, P_total[i=1:n, j=1:3], sum(P_k_s[k, i, j] + P_k_e[k, i, j] for k=1:8))
@@ -661,9 +679,9 @@ function generate_model(
     u_k,i^2 = u_k,i^1 * P_k,i,1^s
     u_8,i^3 = s_8,i * P_8,i,1^e
     """
-    @variable(model, u1[1:8, 1:n] >= 0)      # u_k,i^1
-    @variable(model, u2[1:8, 1:n] >= 0)      # u_k,i^2
-    @variable(model, u3[1:n] >= 0)           # u_8,i^3 (仅状态8)
+    @variable(model, 0 <= u1[1:8, 1:n] <= 1)      # u_k,i^1
+    @variable(model, 0 <= u2[1:8, 1:n] <= 5)      # u_k,i^2
+    @variable(model, 0 <= u3[1:n] <= 5)           # u_8,i^3 (仅状态8)
 
     """
     文档2.3.2节和2.4节:
@@ -677,28 +695,28 @@ function generate_model(
     v_k,i,j^8 = s_k,i * P_k,i,2^s
     v_k,i,j^9 = v_k,i,j^8 * z2,i,j
     """
-    @variable(model, v1[1:8, 1:n, 1:m1] >= 0)  # v_k,i,j^1
-    @variable(model, v2[1:8, 1:n, 1:m1] >= 0)  # v_k,i,j^2
-    @variable(model, v3[1:8, 1:n, 1:m2] >= 0)  # v_k,i,j^3
-    @variable(model, v4[1:8, 1:n, 1:m2] >= 0)  # v_k,i,j^4
-    @variable(model, v5[1:8, 1:n] >= 0)        # v_k,i^5 (简化为不依赖j)
-    @variable(model, v6[1:8, 1:n, 1:m3] >= 0)  # v_k,i,j^6
-    @variable(model, v7[1:8, 1:n, 1:m1] >= 0)  # v_k,i,j^7
-    @variable(model, v8[1:8, 1:n] >= 0)        # v_k,i^8
-    @variable(model, v9[1:8, 1:n, 1:m2] >= 0)  # v_k,i,j^9
+    @variable(model, 0 <= v1[1:8, 1:n, 1:m1] <= 1)  # v_k,i,j^1
+    @variable(model, 0 <= v2[1:8, 1:n, 1:m1] <= 5)  # v_k,i,j^2
+    @variable(model, 0 <= v3[1:8, 1:n, 1:m2] <= 1)  # v_k,i,j^3
+    @variable(model, 0 <= v4[1:8, 1:n, 1:m2] <= 5)  # v_k,i,j^4
+    @variable(model, 0 <= v5[1:8, 1:n] <= 5)        # v_k,i^5 (简化为不依赖j)
+    @variable(model, 0 <= v6[1:8, 1:n, 1:m3] <= 5)  # v_k,i,j^6
+    @variable(model, 0 <= v7[1:8, 1:n, 1:m1] <= 5)  # v_k,i,j^7
+    @variable(model, 0 <= v8[1:8, 1:n] <= 5)        # v_k,i^8
+    @variable(model, 0 <= v9[1:8, 1:n, 1:m2] <= 5)  # v_k,i,j^9
 
     # u1 = s * (1-y1)
     for k in 1:8, i in 1:n
         @constraint(model, u1[k, i] <= s[k, i])
-        @constraint(model, u1[k, i] <= 1 - y1[i])
-        @constraint(model, u1[k, i] >= s[k, i] - y1[i])
+        @constraint(model, u1[k, i] <= 1 - y1[mod1(i+1,n)])
+        @constraint(model, u1[k, i] >= s[k, i] - y1[mod1(i+1,n)])
     end
 
     # v1 = w1 * s
     for k in 1:8, i in 1:n, j in 1:m1
         @constraint(model, v1[k, i, j] <= s[k, i])
-        @constraint(model, v1[k, i, j] <= w1[i, j])
-        @constraint(model, v1[k, i, j] >= s[k, i] + w1[i, j] - 1)
+        @constraint(model, v1[k, i, j] <= w1[mod1(i+1,n), j])
+        @constraint(model, v1[k, i, j] >= s[k, i] + w1[mod1(i+1,n), j] - 1)
     end
 
     # --- 4.3.2 u2约束: u2 = u1 * P^s (文档2.3.2节) ---
@@ -709,10 +727,17 @@ function generate_model(
     u_k,i^2 ≤ P_k,i,1^s
     u_k,i^2 ≥ 0
     """
-    for k in 1:8, i in 1:n
+    for k in vcat(1:5,8), i in 1:n
         @constraint(model, u2[k, i] <= M5 * u1[k, i])
         @constraint(model, u2[k, i] >= P_k_s[k, i, 1] - M5 * (1 - u1[k, i]))
         @constraint(model, u2[k, i] <= P_k_s[k, i, 1])
+    end
+
+    # k=6
+    for k in 6:7, i in 1:n
+        @constraint(model, u2[k, i] <= M5 * u1[k, i])
+        @constraint(model, u2[k, i] >= P_k_e[k, i, 1] - M5 * (1 - u1[k, i]))
+        @constraint(model, u2[k, i] <= P_k_e[k, i, 1])
     end
 
     # --- 4.3.4 v2约束: v2 = v1 * P^s (文档2.3.2节) ---
@@ -723,10 +748,16 @@ function generate_model(
     v_k,i,j^2 ≤ P_k,i,1^s
     v_k,i,j^2 ≥ 0
     """
-    for k in 1:8, i in 1:n, j in 1:m1
+    for k in vcat(1:5,8), i in 1:n, j in 1:m1
         @constraint(model, v2[k, i, j] <= M5 * v1[k, i, j])
         @constraint(model, v2[k, i, j] >= P_k_s[k, i, 1] - M5 * (1 - v1[k, i, j]))
         @constraint(model, v2[k, i, j] <= P_k_s[k, i, 1])
+    end
+
+    for k in 6:7, i in 1:n, j in 1:m1
+        @constraint(model, v2[k, i, j] <= M5 * v1[k, i, j])
+        @constraint(model, v2[k, i, j] >= P_k_e[k, i, 1] - M5 * (1 - v1[k, i, j]))
+        @constraint(model, v2[k, i, j] <= P_k_e[k, i, 1])
     end
 
     """
@@ -738,8 +769,8 @@ function generate_model(
     """
     for k in 1:8, i in 1:n, j in 1:m2
         @constraint(model, v3[k, i, j] <= s[k, i])
-        @constraint(model, v3[k, i, j] <= z2[i, j])
-        @constraint(model, v3[k, i, j] >= s[k, i] + z2[i, j] - 1)
+        @constraint(model, v3[k, i, j] <= z2[mod1(i+1,n), j])
+        @constraint(model, v3[k, i, j] >= s[k, i] + z2[mod1(i+1,n), j] - 1)
     end
     
     """
@@ -780,13 +811,13 @@ function generate_model(
     heat_k17_expr = @expression(model, [i=1:n],
         sum(
             params.COPca[i] * u2[k, i] +
-            sum(params.COP1v[j, i] * v2[k, i, j] for j=1:m1) +
-            sum(params.COP2v[j, i] * v4[k, i, j] for j=1:m2)
+            sum(params.COP1v[j, mod1(i+1,n)] * v2[k, i, j] for j=1:m1) +
+            sum(params.COP2v[j, mod1(i+1,n)] * v4[k, i, j] for j=1:m2)
             for k=1:7
         )
     )
     heat_k8_expr = @expression(model, [i=1:n],
-        sum(params.COP3v[j, i] * v2[8, i, j] for j=1:m1) + params.COPca[i] * u3[i]
+        sum(params.COP3v[j, mod1(i+1,n)] * v2[8, i, j] for j=1:m1) + params.COPca[i] * u3[i]
     )
 
     for i in 1:n
@@ -814,8 +845,8 @@ function generate_model(
     v_k,i,j^6 ≥ 0
     """
     for k in 1:8, i in 1:n, j in 1:m3
-        @constraint(model, v6[k, i, j] <= M5 * w3[i, j])
-        @constraint(model, v6[k, i, j] >= v5[k, i] - M5 * (1 - w3[i, j]))
+        @constraint(model, v6[k, i, j] <= M5 * w3[mod1(i+1,n), j])
+        @constraint(model, v6[k, i, j] >= v5[k, i] - M5 * (1 - w3[mod1(i+1,n), j]))
         @constraint(model, v6[k, i, j] <= v5[k, i])
     end
 
@@ -827,8 +858,8 @@ function generate_model(
     v_k,i,j^7 ≥ 0
     """
     for k in 1:8, i in 1:n, j in 1:m1
-        @constraint(model, v7[k, i, j] <= M5 * w1[i, j])
-        @constraint(model, v7[k, i, j] >= v5[k, i] - M5 * (1 - w1[i, j]))
+        @constraint(model, v7[k, i, j] <= M5 * w1[mod1(i+1,n), j])
+        @constraint(model, v7[k, i, j] >= v5[k, i] - M5 * (1 - w1[mod1(i+1,n), j]))
         @constraint(model, v7[k, i, j] <= v5[k, i])
     end
     
@@ -870,9 +901,9 @@ function generate_model(
     """
     for i in 1:n
         heat_change = sum(
-            sum(params.COP3v[j, i] * v6[k, i, j] for j=1:m3) +
-            sum(params.COP1v[j, i] * v7[k, i, j] for j=1:m1) -
-            sum((params.COP2v[j, i] - 1) * v9[k, i, j] for j=1:m2)
+            sum(params.COP3v[j, mod1(i+1,n)] * v6[k, i, j] for j=1:m3) +
+            sum(params.COP1v[j, mod1(i+1,n)] * v7[k, i, j] for j=1:m1) -
+            sum((params.COP2v[j, mod1(i+1,n)] - 1) * v9[k, i, j] for j=1:m2)
             for k=1:8
         )
         @constraint(model, params.cpm * (Ts[i+1] - Ts[i]) / params.dt_list[i] == heat_change + P_es[i])
@@ -952,8 +983,8 @@ function generate_model(
     - j=3: 热泵向蓄热储热功率 P_{i,3}
     - j=4: 电加热功率 P_{i,4}
     """
-    @variable(model, dP_pos[1:4, 1:n] >= 0)  # ΔP_{i,j}^positive
-    @variable(model, dP_neg[1:4, 1:n] >= 0)  # ΔP_{i,j}^negative
+    @variable(model, 0 <= dP_pos[1:4, 1:n] <= 5)  # ΔP_{i,j}^positive
+    @variable(model, 0 <= dP_neg[1:4, 1:n] <= 5)  # ΔP_{i,j}^negative
 
     """
     文档3.1.2节:
@@ -973,7 +1004,7 @@ function generate_model(
     # 变差约束: P_{i+1,j} - P_{i,j} = ΔP_{i,j}^positive - ΔP_{i,j}^negative
     for j in 1:4
         for i in 1:n
-            i_next = (i % n) + 1  # 周期边界处理 (文档1.1节)
+            i_next = mod1(i+1,n)
             if j <= 3
                 @constraint(model, P_total[i_next, j] - P_total[i, j] == dP_pos[j, i] - dP_neg[j, i])
             else

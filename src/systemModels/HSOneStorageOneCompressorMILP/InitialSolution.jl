@@ -85,7 +85,7 @@ function generateInitialSolution_HeatPumpOnly(params::MILPModelParameters)
     m1, m2, m3, mw = params.m1, params.m2, params.m3, params.mw
     
     # 1. 蓄热温度：恒为 Tuse
-    Ts = fill(params.Tsmin, n + 1)
+    Ts = fill(params.Tuse, n + 1)
     
     # 2. 运行状态：s1=1，其他=0
     s = zeros(8, n)
