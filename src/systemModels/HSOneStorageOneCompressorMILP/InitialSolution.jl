@@ -18,6 +18,13 @@ struct InitialSolution
     z3::Matrix{Float64}            # COP3分档 [n, m3]
     zw::Matrix{Float64}            # COPw分档 [n, mw]
     
+    # COP辅助变量
+    w1::Matrix{Float64}            # w1 = y1 * z1 [n, m1]
+    w3::Matrix{Float64}            # w3 = (1-y1) * z3 [n, m3]
+    
+    # 状态组合变量
+    y1::Vector{Float64}            # y1 = s5 || s8 [n]
+    
     # 功率变量
     P_k_s::Array{Float64, 3}       # 起始功率 [8, n, 3]
     P_k_e::Array{Float64, 3}       # 结束功率 [8, n, 3]
@@ -25,6 +32,32 @@ struct InitialSolution
     # 电加热功率
     P_el::Vector{Float64}          # 电加热补热功率 [n]
     P_es::Vector{Float64}          # 电加热蓄热功率 [n]
+    
+    # 热负荷辅助变量
+    u1::Matrix{Float64}            # u_k,i^1 = s_k,i * (1-y1,i) [8, n]
+    u2::Matrix{Float64}            # u_k,i^2 = u_k,i^1 * P_k,i,1^s [8, n]
+    u3::Vector{Float64}            # u_8,i^3 = s_8,i * P_8,i,1^e [n]
+    
+    # 功率乘积辅助变量
+    v1::Array{Float64, 3}          # v_k,i,j^1 = w1,i,j * s_k,i [8, n, m1]
+    v2::Array{Float64, 3}          # v_k,i,j^2 = v_k,i,j^1 * P_k,i,1^s [8, n, m1]
+    v3::Array{Float64, 3}          # v_k,i,j^3 = z2,i,j * s_k,i [8, n, m2]
+    v4::Array{Float64, 3}          # v_k,i,j^4 = v_k,i,j^3 * P_k,i,2^s [8, n, m2]
+    v5::Matrix{Float64}            # v_k,i^5 = s_k,i * P_k,i,3^s [8, n]
+    v6::Array{Float64, 3}          # v_k,i,j^6 = v_k,i^5 * w3,i,j [8, n, m3]
+    v7::Array{Float64, 3}          # v_k,i,j^7 = v_k,i^5 * w1,i,j [8, n, m1]
+    v8::Matrix{Float64}            # v_k,i^8 = s_k,i * P_k,i,2^s [8, n]
+    v9::Array{Float64, 3}          # v_k,i,j^9 = v_k,i^8 * z2,i,j [8, n, m2]
+    
+    # COP估计值和实际值
+    COP1e::Vector{Float64}         # COP1估计值 [n]
+    COP2e::Vector{Float64}         # COP2估计值 [n]
+    COP3e::Vector{Float64}         # COP3估计值 [n]
+    COPwe::Vector{Float64}         # COPw估计值 [n]
+    COP1::Vector{Float64}          # COP1实际值 [n]
+    COP2::Vector{Float64}          # COP2实际值 [n]
+    COP3::Vector{Float64}          # COP3实际值 [n]
+    COPw::Vector{Float64}          # COPw实际值 [n]
     
     # 容量变量初值（当 optimizeCapacity=true 时使用）
     C_heatpump::Float64            # 热泵容量初值 kW
@@ -101,13 +134,8 @@ function generateInitialSolution_HeatPumpOnly(params::MILPModelParameters)
     z3 = zeros(n, m3)
     zw = zeros(n, mw)
     
-    # 获取温度分档界限（需要从参数中提取）
-    # 注意：T1g 的维度是 [n, m1-1]，这里取第一个时段的分档界限
     for i in 1:n
-        # 找到 Ts[i] 所在的档位
-        # T1g 的维度是 [n, m1+1]，其中第1列和第m1+1列是端点
-        # 分界点是 T1g[i, 2:m1]，共 m1-1 个
-        Tg1 = params.T1g[i, 2:m1]  # COP1温度分档分界点 [m1-1]
+        Tg1 = params.T1g[i, 2:m1]
         Tg2 = params.T2g[i, 2:m2]
         Tg3 = params.T3g[i, 2:m3]
         Tgw = params.Twg[i, 2:mw]
@@ -117,53 +145,117 @@ function generateInitialSolution_HeatPumpOnly(params::MILPModelParameters)
         seg3 = findCOPSegment(params.Tuse, Tg3)
         segw = findCOPSegment(params.Tuse, Tgw)
         
-        #=
         z1[i, seg1] = 1.0
         z2[i, seg2] = 1.0
         z3[i, seg3] = 1.0
         zw[i, segw] = 1.0
-        =#
-        z1[i, 1] = 1.0
-        z2[i, 1] = 1.0
-        z3[i, 1] = 1.0
-        zw[i, 1] = 1.0
     end
     
-    # 5. 功率变量：根据热负荷计算
+    # 5. COP辅助变量
+    # w1 = y1 * z1, w3 = (1-y1) * z3
+    y1 = zeros(n)
+    w1 = zeros(n, m1)
+    w3 = zeros(n, m3)
+    for i in 1:n
+        w3[i, :] .= z3[i, :]
+    end
+    
+    # 6. 功率变量：根据热负荷计算
     P_k_s = zeros(8, n, 3)
     P_k_e = zeros(8, n, 3)
-
+    
     for i in 1:n
-        # 状态1：热泵直接供热，功率 = 热负荷 / COP
         COP1_i = sum(params.COP1v[j, i] * z1[i, j] for j=1:m1)
-        #println("调试: 第$(i)时段 COP1_i=$COP1_i, heatLoad=$(params.heatLoad[i])")
-        
-        P_k_s[1, i, 1] = params.heatLoad[i] / COP1_i
-        
-        #=
-        if params.heatLoad[i]!=0
-            println("调试: 第$(i)时段 heatLoad=$(params.heatLoad[1]), COP1_i=$COP1_i, P_k_s[1,1,1]=$(P_k_s[1,i,1])")
-            #println("调试: COP1v[:,1] = $(params.COP1v[:,1])")
-            #println("调试: z1[1,:] = $(z1[1,:])")
-        end
-        =#
+        P_k_s[1, i, 1] = min(params.heatLoad[i], params.C_heatpump) / COP1_i
     end
     
-    # 6. 电加热功率：为0（热泵满足全部负荷）
-    P_el = zeros(n)
+    # 7. 电加热功率
+    P_el = max.(params.heatLoad .- params.C_heatpump, 0)
     P_es = zeros(n)
     
-    # 7. 容量变量初值：当 optimizeCapacity=true 时使用
-    # 默认初值 = 1.0 * maximum(heatLoad)，确保能满足最大热负荷需求
-    max_heat_load = maximum(params.heatLoad)
-    C_heatpump_init = 1.0 * max_heat_load
-    C_boiler_init = 0.0
+    # 8. 热负荷辅助变量
+    u1 = zeros(8, n)
+    u2 = zeros(8, n)
+    u3 = zeros(n)
+    for k in 1:8, i in 1:n
+        u1[k, i] = s[k, i] * (1 - y1[i])
+        if k in [1,2,3,4,5,8]
+            u2[k, i] = u1[k, i] * P_k_s[k, i, 1]
+        else
+            u2[k, i] = u1[k, i] * P_k_e[k, i, 1]
+        end
+    end
+    
+    # 9. 功率乘积辅助变量
+    v1 = zeros(8, n, m1)
+    v2 = zeros(8, n, m1)
+    v3 = zeros(8, n, m2)
+    v4 = zeros(8, n, m2)
+    v5 = zeros(8, n)
+    v6 = zeros(8, n, m3)
+    v7 = zeros(8, n, m1)
+    v8 = zeros(8, n)
+    v9 = zeros(8, n, m2)
+    
+    for k in 1:8, i in 1:n
+        for j in 1:m1
+            v1[k, i, j] = w1[i, j] * s[k, i]
+            if k in [1,2,3,4,5,8]
+                v2[k, i, j] = v1[k, i, j] * P_k_s[k, i, 1]
+            else
+                v2[k, i, j] = v1[k, i, j] * P_k_e[k, i, 1]
+            end
+        end
+        for j in 1:m2
+            v3[k, i, j] = z2[i, j] * s[k, i]
+            v4[k, i, j] = v3[k, i, j] * P_k_s[k, i, 2]
+        end
+        v5[k, i] = s[k, i] * P_k_s[k, i, 3]
+        for j in 1:m3
+            v6[k, i, j] = v5[k, i] * w3[i, j]
+        end
+        for j in 1:m1
+            v7[k, i, j] = v5[k, i] * w1[i, j]
+        end
+        v8[k, i] = s[k, i] * P_k_s[k, i, 2]
+        for j in 1:m2
+            v9[k, i, j] = v8[k, i] * z2[i, j]
+        end
+    end
+    
+    # 10. COP估计值和实际值
+    COP1e = zeros(n)
+    COP2e = zeros(n)
+    COP3e = zeros(n)
+    COPwe = zeros(n)
+    COP1 = zeros(n)
+    COP2 = zeros(n)
+    COP3 = zeros(n)
+    COPw = zeros(n)
+    
+    for i in 1:n
+        COP2e[i] = sum(params.COP2v[j, i] * z2[i, j] for j=1:m2)
+        COPwe[i] = sum(params.COPwv[j, i] * zw[i, j] for j=1:mw)
+        COP2[i] = COP2e[i]
+        COPw[i] = COPwe[i]
+        COP1[i] = (1 - y1[i]) * params.COPca[i] + sum(params.COP1v[j, i] * w1[i, j] for j=1:m1)
+        COP3[i] = sum(params.COP3v[j, i] * w3[i, j] for j=1:m3) + sum(params.COP1v[j, i] * w1[i, j] for j=1:m1)
+    end
+    
+    # 11. 容量变量初值
+    C_heatpump_init = params.C_heatpump
+    C_boiler_init = params.C_boiler
     
     return InitialSolution(
         Ts, s, delta_su, delta_tilde,
         z1, z2, z3, zw,
+        w1, w3, y1,
         P_k_s, P_k_e,
         P_el, P_es,
+        u1, u2, u3,
+        v1, v2, v3, v4, v5, v6, v7, v8, v9,
+        COP1e, COP2e, COP3e, COPwe,
+        COP1, COP2, COP3, COPw,
         C_heatpump_init, C_boiler_init
     )
 end
@@ -181,7 +273,7 @@ end
 此函数使用 JuMP 的 `set_start_value` 方法设置变量初值。
 求解器会使用这些初值作为搜索起点，可能加速求解过程。
 """
-function setInitialSolution(model::Model, initial::InitialSolution)
+function setInitialSolution(model::Model, initial::InitialSolution, params::MILPModelParameters)
     # 设置温度初值
     if haskey(model, :Ts)
         set_start_value.(model[:Ts], initial.Ts)
@@ -214,6 +306,19 @@ function setInitialSolution(model::Model, initial::InitialSolution)
         set_start_value.(model[:zw], initial.zw)
     end
     
+    # 设置COP辅助变量初值
+    if haskey(model, :w1)
+        set_start_value.(model[:w1], initial.w1)
+    end
+    if haskey(model, :w3)
+        set_start_value.(model[:w3], initial.w3)
+    end
+    
+    # 设置状态组合变量初值
+    if haskey(model, :y1)
+        set_start_value.(model[:y1], initial.y1)
+    end
+    
     # 设置功率初值
     if haskey(model, :P_k_s)
         set_start_value.(model[:P_k_s], initial.P_k_s)
@@ -230,11 +335,77 @@ function setInitialSolution(model::Model, initial::InitialSolution)
         set_start_value.(model[:P_es], initial.P_es)
     end
     
+    # 设置热负荷辅助变量初值
+    if haskey(model, :u1)
+        set_start_value.(model[:u1], initial.u1)
+    end
+    if haskey(model, :u2)
+        set_start_value.(model[:u2], initial.u2)
+    end
+    if haskey(model, :u3)
+        set_start_value.(model[:u3], initial.u3)
+    end
+    
+    # 设置功率乘积辅助变量初值
+    if haskey(model, :v1)
+        set_start_value.(model[:v1], initial.v1)
+    end
+    if haskey(model, :v2)
+        set_start_value.(model[:v2], initial.v2)
+    end
+    if haskey(model, :v3)
+        set_start_value.(model[:v3], initial.v3)
+    end
+    if haskey(model, :v4)
+        set_start_value.(model[:v4], initial.v4)
+    end
+    if haskey(model, :v5)
+        set_start_value.(model[:v5], initial.v5)
+    end
+    if haskey(model, :v6)
+        set_start_value.(model[:v6], initial.v6)
+    end
+    if haskey(model, :v7)
+        set_start_value.(model[:v7], initial.v7)
+    end
+    if haskey(model, :v8)
+        set_start_value.(model[:v8], initial.v8)
+    end
+    if haskey(model, :v9)
+        set_start_value.(model[:v9], initial.v9)
+    end
+    
+    # 设置COP估计值和实际值初值
+    if haskey(model, :COP1e)
+        set_start_value.(model[:COP1e], initial.COP1e)
+    end
+    if haskey(model, :COP2e)
+        set_start_value.(model[:COP2e], initial.COP2e)
+    end
+    if haskey(model, :COP3e)
+        set_start_value.(model[:COP3e], initial.COP3e)
+    end
+    if haskey(model, :COPwe)
+        set_start_value.(model[:COPwe], initial.COPwe)
+    end
+    if haskey(model, :COP1)
+        set_start_value.(model[:COP1], initial.COP1)
+    end
+    if haskey(model, :COP2)
+        set_start_value.(model[:COP2], initial.COP2)
+    end
+    if haskey(model, :COP3)
+        set_start_value.(model[:COP3], initial.COP3)
+    end
+    if haskey(model, :COPw)
+        set_start_value.(model[:COPw], initial.COPw)
+    end
+    
     # 设置容量变量初值（当 optimizeCapacity=true 时使用）
-    if haskey(model, :C_heatpump)
+    if haskey(model, :C_heatpump) && params.optimizeCapacity
         set_start_value(model[:C_heatpump], initial.C_heatpump)
     end
-    if haskey(model, :C_boiler)
+    if haskey(model, :C_boiler) && params.optimizeCapacity
         set_start_value(model[:C_boiler], initial.C_boiler)
     end
 end

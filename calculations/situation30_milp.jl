@@ -32,7 +32,7 @@ end
 #项目设计条件
 # 跳过heatPumpServiceCoff+maxheatStorageInputHour < 1的工况
 heatPumpServiceCoff_list = 0.4:0.2:1.2						# 5
-heatStorageCapacity_list = 2.0:1.0:6						# 7
+heatStorageCapacity_list = 2.0:1.0:8						# 7
 maxheatStorageInputHour_list = [0.5,1.0,1.5,2.5,3.5,4.5]	# 6
 
 for hs in heatStorageCapacity_list
@@ -110,12 +110,14 @@ begin
 	end
 	dt_list *= dt
 
-	inner_divide = 2
+	inner_divide = 1
 
 	dt_list = repeat(dt_list, inner = inner_divide) / inner_divide
 	segmentHeatLoad = repeat(segmentHeatLoad, inner = inner_divide)
 	segmentTariff = repeat(segmentTariff, inner = inner_divide)
 	segmentTair = repeat(segmentTair, inner = inner_divide)
+
+	segmentTariff_ori = segmentTariff/0.7393
 
 	t_list = vcat(0.0, cumsum(dt_list))
 
@@ -257,6 +259,15 @@ for heatStorageCapacity in heatStorageCapacity_list
 			global case_count, n_cases
 			case_count += 1
 
+			result_dir = joinpath(pwd(), "calculations", "situation30", "storage_$(round(heatStorageCapacity,digits=1))", "$(round(heatPumpServiceCoff,digits=1))_$(round(heatStorageCapacity,digits=1))_$(round(maxheatStorageInputHour,digits=1)).json")
+            if isfile(result_dir)
+                data = JSON3.read(read(result_dir, String))
+                if data.status == "success" && data.operationResults.gap <= 0.4
+                    println("算例  $(case_count)/$(n_cases)  ", round(heatPumpServiceCoff, digits=1), " ", round(heatStorageCapacity, digits=1), " ", round(maxheatStorageInputHour, digits=1))
+                    continue
+                end
+            end
+
 			params = getParams(heatPumpServiceCoff, heatStorageCapacity, maxheatStorageInputHour)
 			cpm = params.cpm# kWh/K
 			n = length(dt_list)
@@ -285,7 +296,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 
 				# 设备容量参数
 				C_heatpump = heatPumpServiceCoff * maximum(heatConsumptionPower),
-				C_boiler = maximum(heatConsumptionPower),
+				C_boiler = params.PeMax,
 				C_storage = C_storage_value,
 				optimizeCapacity = false,  # 固定容量优化
 
@@ -335,14 +346,14 @@ for heatStorageCapacity in heatStorageCapacity_list
 			)
 
 			# 方式一：生成初值（全程热泵供热）
-			# initial = generateInitialSolution_HeatPumpOnly(milp_params)
+			initial = generateInitialSolution_HeatPumpOnly(milp_params)
 			model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
-			set_attribute(model, "TimeLimit", 10)
+
 			@time result, model = solve_model(
 				PressedWaterOneStorageOneCompressor_MILP(),
 				model,
 				milp_params;
-				#initial_solution = initial,
+				initial_solution = initial,
 				#callback = (cb_data, cb_context, model) -> incumbent_callback(cb_data, cb_context, model, convergence_data, milp_params)
 			)
 
@@ -483,8 +494,8 @@ function batch_plot_results()
 				n_time_points = length(data.operationResults.Ts)
 				n_segments = length(data.operationResults.P1)
 				
-				time_list = collect(range(0, stop=24, length=n_time_points))
-				tariff_list = ones(n_segments)
+				time_list = t_list
+				tariff_list = segmentTariff_ori
 				
 				plt = operation_result_plot(
 					time_list,

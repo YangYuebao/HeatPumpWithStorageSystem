@@ -252,31 +252,37 @@ function generate_model(
         model = direct_model(COPT.Optimizer())
         # COPT参数设置
         # set_silent(model)
-        set_attribute(model, "TimeLimit", 60*20)
+        set_attribute(model, "TimeLimit", 60*10)
         set_attribute(model, "Presolve", 3)
         set_attribute(model, "Threads", 24)
 
-        set_attribute(model, "CutLevel", 2)            # 增强割平面
-        set_attribute(model, "RootCutRounds", 20)      # 根节点多轮割
-        set_attribute(model, "StrongBranching", 1)     # 启用强分支
+        set_attribute(model, "CutLevel", 1)            # 增强割平面
+        #set_attribute(model, "RootCutRounds", 20)      # 根节点多轮割
+        #set_attribute(model, "StrongBranching", 1)     # 启用强分支
         set_attribute(model, "RelGap", 0.05)          # 设置一个合理的最优间隙，避免过度证明
 
         # 2. 根节点割平面强度与轮数
         # 作用: 专门控制根节点上的割。根节点割得好，能大幅提升初始下界。
         # 建议: 将强度设为 2，并将轮数从默认的少轮增加到 10 轮。
-        set_attribute(model, "RootCutLevel", 2)
-        set_attribute(model, "RootCutRounds", 10)
+        set_attribute(model, "RootCutLevel", 3)
+        #set_attribute(model, "RootCutRounds", 10)
         
         # 3. 搜索树中的割平面策略
         # 作用: 控制搜索树节点上的割。
         # 建议: 如果单节点 LP 求解变慢 (LPit/n 升高)，可以降低此参数。
         # 如果希望更激进地剪枝，可以设为 1 或 2。
-        set_attribute(model, "TreeCutLevel", 1)
+        #set_attribute(model, "TreeCutLevel", 1)
 
         # 4. 节点割平面轮数 (可选)
         # 作用: 限制在搜索树节点上生成割的轮数。
         # 建议: 保持默认，或设为 2~3 以限制单节点开销。
         #set_attribute(model, "NodeCutRounds", 2)
+
+        # 5. 启发式算法强度
+        set_attribute(model, "PreRootHeurLevel", 3)
+        set_attribute(model, "DivingHeurLevel", 3)
+        set_attribute(model, "SubMipHeurLevel", 3)
+        set_attribute(model, "FAPHeurLevel", 3)
 
     elseif params.solver == :HiGHS
         model = Model(HiGHS.Optimizer)
@@ -1080,7 +1086,7 @@ function solve_model(::PressedWaterOneStorageOneCompressor_MILP,model,params; in
     # =============================================================
     
     if initial_solution !== nothing
-        setInitialSolution(model, initial_solution)
+        setInitialSolution(model, initial_solution, params)
     end
 
     # =============================================================

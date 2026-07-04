@@ -22,8 +22,9 @@ situation = "situation29"
 #第一步，指定设计条件变量
 #项目设计条件
 begin
-	heatPumpServiceCoff, heatStorageCapacity, maxheatStorageInputHour = 1.0, 6.0, 4.0
+	heatPumpServiceCoff, heatStorageCapacity, maxheatStorageInputHour = 0.4, 6.0, 3.0
 	
+	#=
 	hourlyTariff = zeros(24)
 	hourlyTariff[1:8] .= 99.0094
 	hourlyTariff[9:16] .= 0.658
@@ -32,8 +33,8 @@ begin
 	Tair = fill(85.0,25)
 
 	heatConsumptionPower = ones(24)
+	=#
 	
-	#=
 	hourly_tariff_ori = ones(48)
 	p = 4.7#1.7
 	pp = p * 1.2
@@ -56,8 +57,8 @@ begin
 	)
 
 	Tair = fill(85.0, 49)
-	=#
-	dt = 1.0
+	
+	dt = 0.5
 	if length(hourlyTariff) != length(heatConsumptionPower) || length(hourlyTariff) != length(Tair) - 1
 		@warn "hourlyTariff, heatConsumptionPower, and Tair must have the same length"
 	end
@@ -109,7 +110,7 @@ begin
 	end
 	dt_list *= dt
 
-	inner_divide = 3
+	inner_divide = 1
 
 	dt_list = repeat(dt_list, inner = inner_divide)/inner_divide
 	segmentHeatLoad = repeat(segmentHeatLoad, inner = inner_divide)
@@ -272,7 +273,7 @@ milp_params = MILPModelParameters(
 
 	# 设备容量参数
 	C_heatpump = heatPumpServiceCoff * maximum(heatConsumptionPower),
-	C_boiler = maximum(heatConsumptionPower),
+	C_boiler = params.PeMax,#,maximum(heatConsumptionPower)#
 	C_storage = C_storage_value,
 	optimizeCapacity = false,  # 固定容量优化
 
@@ -322,169 +323,170 @@ milp_params = MILPModelParameters(
 )
 
 # 收敛数据记录类型：用于记录求解过程中的下界、上界和最优解
-mutable struct ConvergenceData
-    upper_bounds::Vector{Float64}          # 全局最优上界历史（单调递降）
-    lower_bounds::Vector{Float64}          # 全局最优下界历史（单调递增）
-    upper_iterations::Vector{Int}          # 上界对应的迭代次数
-    lower_iterations::Vector{Int}          # 下界对应的迭代次数
-    global_upper_bound::Float64            # 当前全局最小上界
-    global_lower_bound::Float64            # 当前全局最大下界
-    best_obj::Ref{Float64}                 # 当前最优目标值
-    best_C_heatpump::Ref{Float64}          # 当前最优热泵容量
-    best_C_boiler::Ref{Float64}            # 当前最优电加热容量
-    best_Ts::Ref{Vector{Float64}}          # 当前最优温度曲线
-end
-
-# 初始化收敛数据
-convergence_data = ConvergenceData(
-    Float64[],                             # upper_bounds
-    Float64[],                             # lower_bounds
-    Int[],                                 # upper_iterations
-    Int[],                                 # lower_iterations
-    Inf,                                   # global_upper_bound
-    -Inf,                                  # global_lower_bound
-    Ref(Inf),                              # best_obj
-    Ref(0.0),                              # best_C_heatpump
-    Ref(0.0),                              # best_C_boiler
-    Ref(Float64[])                         # best_Ts
-)
-
-# 迭代计数器
-iteration_counter = Ref(0)
-
-# 定义回调函数：当找到可行解时触发
-function incumbent_callback(cb_data, cb_context, model, conv_data::ConvergenceData, params::MILPModelParameters)
-	# 迭代计数器自增
-    iteration_counter[] += 1
-    # 只处理找到可行解的情况
-    if cb_context != COPT.COPT_CBCONTEXT_MIPSOL
-        return
-    end
-    
-    current_iter = iteration_counter[]
-    
-    # 获取全局最优下界（分支定界算法维护的下界）
-    best_bnd_ref = Ref{Cdouble}(0.0)
-    COPT.COPT_GetCallbackInfo(cb_data, COPT.COPT_CBINFO_BESTBND, best_bnd_ref)
-    best_bnd = best_bnd_ref[]
-    
-    # 获取全局最优上界（当前最优可行解目标值）
-    best_obj_ref = Ref{Cdouble}(0.0)
-    COPT.COPT_GetCallbackInfo(cb_data, COPT.COPT_CBINFO_BESTOBJ, best_obj_ref)
-    best_obj = best_obj_ref[]
-    
-    # 检查是否有可行解
-    has_incumbent_ref = Ref{Cint}(0)
-    COPT.COPT_GetCallbackInfo(cb_data, COPT.COPT_CBINFO_HASINCUMBENT, has_incumbent_ref)
-    has_incumbent = has_incumbent_ref[] == 1
-    
-    if !has_incumbent
-        return  # 没有可行解，不处理
-    end
-    
-    # 更新全局上下界并记录历史
-    lower_bound_updated = false
-    upper_bound_updated = false
-    
-    if best_bnd > conv_data.global_lower_bound
-        conv_data.global_lower_bound = best_bnd
-        push!(conv_data.lower_bounds, best_bnd)
-        push!(conv_data.lower_iterations, current_iter)
-        lower_bound_updated = true
-    end
-    
-    if best_obj < conv_data.global_upper_bound
-        conv_data.global_upper_bound = best_obj
-        push!(conv_data.upper_bounds, best_obj)
-        push!(conv_data.upper_iterations, current_iter)
-        upper_bound_updated = true
-    end
-    
-    # 只有在上下界任一更新时才绘图
-    if !lower_bound_updated && !upper_bound_updated
-        return
-    end
-    
-    # 获取可行解的变量值
-    COPT.load_callback_variable_primal(cb_data, cb_context)
-    
-    # 获取底层的 MOI 模型
-    moi_model = JuMP.backend(model)
-    
-    # 获取变量值
-    if params.optimizeCapacity
-        C_heatpump_idx = JuMP.index(model[:C_heatpump])
-        C_boiler_idx = JuMP.index(model[:C_boiler])
-        C_heatpump_val = JuMP.MOI.get(moi_model, JuMP.MOI.CallbackVariablePrimal(cb_data), C_heatpump_idx)
-        C_boiler_val = JuMP.MOI.get(moi_model, JuMP.MOI.CallbackVariablePrimal(cb_data), C_boiler_idx)
-    else
-        C_heatpump_val = params.C_heatpump
-        C_boiler_val = params.C_boiler
-    end
-    Ts_idx = JuMP.index.(model[:Ts])
-    Ts_val = JuMP.MOI.get.(moi_model, JuMP.MOI.CallbackVariablePrimal(cb_data), Ts_idx)
-    
-    # 更新最优解记录
-    conv_data.best_obj[] = best_obj
-    conv_data.best_C_heatpump[] = C_heatpump_val
-    conv_data.best_C_boiler[] = C_boiler_val
-    conv_data.best_Ts[] = Ts_val
-    
-    # 计算蓄热容量和时长
-    C_storage_val = heatStorageCapacity
-    heat_storage_hours = C_heatpump_val > 0 ? C_storage_val : 0
-    
-	if upper_bound_updated && length(conv_data.best_obj) > 1
-		println("iter:", current_iter, "upper_bound:",round(conv_data.upper_bounds[end-1],digits=2), "->",round(best_obj,digits=2))
-		println("C_heatpump: ", C_heatpump_val)
-		println("hour: ", heat_storage_hours)
-		println("C_boiler: ", C_boiler_val)
-	end
-	if lower_bound_updated && length(conv_data.best_obj) > 1
-		println("iter:", current_iter, "lower_bound:",round(conv_data.lower_bounds[end-1],digits=2), "->",round(best_obj,digits=2))
+begin
+	mutable struct ConvergenceData
+		upper_bounds::Vector{Float64}          # 全局最优上界历史（单调递降）
+		lower_bounds::Vector{Float64}          # 全局最优下界历史（单调递增）
+		upper_iterations::Vector{Int}          # 上界对应的迭代次数
+		lower_iterations::Vector{Int}          # 下界对应的迭代次数
+		global_upper_bound::Float64            # 当前全局最小上界
+		global_lower_bound::Float64            # 当前全局最大下界
+		best_obj::Ref{Float64}                 # 当前最优目标值
+		best_C_heatpump::Ref{Float64}          # 当前最优热泵容量
+		best_C_boiler::Ref{Float64}            # 当前最优电加热容量
+		best_Ts::Ref{Vector{Float64}}          # 当前最优温度曲线
 	end
 
-    # 创建子图布局：2行1列
-    layout = @layout [a; b]
-    
-    # 上图：温度曲线
-    p1 = plot(t_list, Ts_val,
-        title = "Ts vs t",
-        xlabel = "t (h)",
-        ylabel = "Ts (℃)",
-        legend = false,
-        color = :blue,
-        linewidth = 2,
-        ylims = (Tsmin, Tsmax)
-    )
-    
-    # 下图：收敛曲线
-    p2 = plot(
-        xlabel = "iterations",
-        ylabel = "objective value",
-        title = "Convergence Curve",
-        legend = :bottomright
-    )
-    if !isempty(conv_data.lower_bounds)
-        plot!(p2, conv_data.lower_iterations, conv_data.lower_bounds,
-            label = "lower bound",
-            color = :red,
-            linewidth = 2
-        )
-    end
-    if !isempty(conv_data.upper_bounds)
-        plot!(p2, conv_data.upper_iterations, conv_data.upper_bounds,
-            label = "upper bound",
-            color = :green,
-            linewidth = 2
-        )
-    end
-    
-    # 合并两张图并显示
-    plt = plot(p1, p2, layout = layout, size = (800, 600))
-    display(plt)
-end
+	# 初始化收敛数据
+	convergence_data = ConvergenceData(
+		Float64[],                             # upper_bounds
+		Float64[],                             # lower_bounds
+		Int[],                                 # upper_iterations
+		Int[],                                 # lower_iterations
+		Inf,                                   # global_upper_bound
+		-Inf,                                  # global_lower_bound
+		Ref(Inf),                              # best_obj
+		Ref(0.0),                              # best_C_heatpump
+		Ref(0.0),                              # best_C_boiler
+		Ref(Float64[])                         # best_Ts
+	)
 
+	# 迭代计数器
+	iteration_counter = Ref(0)
+
+	# 定义回调函数：当找到可行解时触发
+	function incumbent_callback(cb_data, cb_context, model, conv_data::ConvergenceData, params::MILPModelParameters)
+		# 迭代计数器自增
+		iteration_counter[] += 1
+		# 只处理找到可行解的情况
+		if cb_context != COPT.COPT_CBCONTEXT_MIPSOL
+			return
+		end
+		
+		current_iter = iteration_counter[]
+		
+		# 获取全局最优下界（分支定界算法维护的下界）
+		best_bnd_ref = Ref{Cdouble}(0.0)
+		COPT.COPT_GetCallbackInfo(cb_data, COPT.COPT_CBINFO_BESTBND, best_bnd_ref)
+		best_bnd = best_bnd_ref[]
+		
+		# 获取全局最优上界（当前最优可行解目标值）
+		best_obj_ref = Ref{Cdouble}(0.0)
+		COPT.COPT_GetCallbackInfo(cb_data, COPT.COPT_CBINFO_BESTOBJ, best_obj_ref)
+		best_obj = best_obj_ref[]
+		
+		# 检查是否有可行解
+		has_incumbent_ref = Ref{Cint}(0)
+		COPT.COPT_GetCallbackInfo(cb_data, COPT.COPT_CBINFO_HASINCUMBENT, has_incumbent_ref)
+		has_incumbent = has_incumbent_ref[] == 1
+		
+		if !has_incumbent
+			return  # 没有可行解，不处理
+		end
+		
+		# 更新全局上下界并记录历史
+		lower_bound_updated = false
+		upper_bound_updated = false
+		
+		if best_bnd > conv_data.global_lower_bound
+			conv_data.global_lower_bound = best_bnd
+			push!(conv_data.lower_bounds, best_bnd)
+			push!(conv_data.lower_iterations, current_iter)
+			lower_bound_updated = true
+		end
+		
+		if best_obj < conv_data.global_upper_bound
+			conv_data.global_upper_bound = best_obj
+			push!(conv_data.upper_bounds, best_obj)
+			push!(conv_data.upper_iterations, current_iter)
+			upper_bound_updated = true
+		end
+		
+		# 只有在上下界任一更新时才绘图
+		if !lower_bound_updated && !upper_bound_updated
+			return
+		end
+		
+		# 获取可行解的变量值
+		COPT.load_callback_variable_primal(cb_data, cb_context)
+		
+		# 获取底层的 MOI 模型
+		moi_model = JuMP.backend(model)
+		
+		# 获取变量值
+		if params.optimizeCapacity
+			C_heatpump_idx = JuMP.index(model[:C_heatpump])
+			C_boiler_idx = JuMP.index(model[:C_boiler])
+			C_heatpump_val = JuMP.MOI.get(moi_model, JuMP.MOI.CallbackVariablePrimal(cb_data), C_heatpump_idx)
+			C_boiler_val = JuMP.MOI.get(moi_model, JuMP.MOI.CallbackVariablePrimal(cb_data), C_boiler_idx)
+		else
+			C_heatpump_val = params.C_heatpump
+			C_boiler_val = params.C_boiler
+		end
+		Ts_idx = JuMP.index.(model[:Ts])
+		Ts_val = JuMP.MOI.get.(moi_model, JuMP.MOI.CallbackVariablePrimal(cb_data), Ts_idx)
+		
+		# 更新最优解记录
+		conv_data.best_obj[] = best_obj
+		conv_data.best_C_heatpump[] = C_heatpump_val
+		conv_data.best_C_boiler[] = C_boiler_val
+		conv_data.best_Ts[] = Ts_val
+		
+		# 计算蓄热容量和时长
+		C_storage_val = heatStorageCapacity
+		heat_storage_hours = C_heatpump_val > 0 ? C_storage_val : 0
+		
+		if upper_bound_updated && length(conv_data.best_obj) > 1
+			println("iter:", current_iter, "upper_bound:",round(conv_data.upper_bounds[end-1],digits=2), "->",round(best_obj,digits=2))
+			println("C_heatpump: ", C_heatpump_val)
+			println("hour: ", heat_storage_hours)
+			println("C_boiler: ", C_boiler_val)
+		end
+		if lower_bound_updated && length(conv_data.best_obj) > 1
+			println("iter:", current_iter, "lower_bound:",round(conv_data.lower_bounds[end-1],digits=2), "->",round(best_obj,digits=2))
+		end
+
+		# 创建子图布局：2行1列
+		layout = @layout [a; b]
+		
+		# 上图：温度曲线
+		p1 = plot(t_list, Ts_val,
+			title = "Ts vs t",
+			xlabel = "t (h)",
+			ylabel = "Ts (℃)",
+			legend = false,
+			color = :blue,
+			linewidth = 2,
+			ylims = (Tsmin, Tsmax)
+		)
+		
+		# 下图：收敛曲线
+		p2 = plot(
+			xlabel = "iterations",
+			ylabel = "objective value",
+			title = "Convergence Curve",
+			legend = :bottomright
+		)
+		if !isempty(conv_data.lower_bounds)
+			plot!(p2, conv_data.lower_iterations, conv_data.lower_bounds,
+				label = "lower bound",
+				color = :red,
+				linewidth = 2
+			)
+		end
+		if !isempty(conv_data.upper_bounds)
+			plot!(p2, conv_data.upper_iterations, conv_data.upper_bounds,
+				label = "upper bound",
+				color = :green,
+				linewidth = 2
+			)
+		end
+		
+		# 合并两张图并显示
+		plt = plot(p1, p2, layout = layout, size = (800, 600))
+		display(plt)
+	end
+end
 # 方式一：生成初值（全程热泵供热）
 initial = generateInitialSolution_HeatPumpOnly(milp_params)
 model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
