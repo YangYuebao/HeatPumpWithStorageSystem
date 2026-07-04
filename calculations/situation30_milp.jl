@@ -47,7 +47,7 @@ end
 
 begin
 	hourly_tariff_ori = ones(48)
-	p = 4.7#1.7
+	p = 1.7#1.7
 	pp = p * 1.2
 	v = 0.35
 	vv = v * 0.8
