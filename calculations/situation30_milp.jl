@@ -34,6 +34,7 @@ end
 heatPumpServiceCoff_list = 0.4:0.2:1.2						# 5
 heatStorageCapacity_list = 2.0:1.0:8						# 7
 maxheatStorageInputHour_list = [0.5,1.0,1.5,2.5,3.5,4.5]	# 6
+continue_calculate = false
 
 for hs in heatStorageCapacity_list
 	# 使用 round 确保文件夹名称的一致性，避免浮点精度问题
@@ -260,7 +261,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 			case_count += 1
 
 			result_dir = joinpath(pwd(), "calculations", "situation30", "storage_$(round(heatStorageCapacity,digits=1))", "$(round(heatPumpServiceCoff,digits=1))_$(round(heatStorageCapacity,digits=1))_$(round(maxheatStorageInputHour,digits=1)).json")
-            if isfile(result_dir)
+            if isfile(result_dir) && continue_calculate
                 data = JSON3.read(read(result_dir, String))
                 if data.status == "success" && data.operationResults.gap <= 0.4
                     println("算例  $(case_count)/$(n_cases)  ", round(heatPumpServiceCoff, digits=1), " ", round(heatStorageCapacity, digits=1), " ", round(maxheatStorageInputHour, digits=1))
