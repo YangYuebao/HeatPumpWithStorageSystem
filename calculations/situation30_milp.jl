@@ -349,8 +349,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 			# 方式一：生成初值（全程热泵供热）
 			initial = generateInitialSolution_HeatPumpOnly(milp_params)
 			model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
-
-			@time result, model = solve_model(
+			result, model = solve_model(
 				PressedWaterOneStorageOneCompressor_MILP(),
 				model,
 				milp_params;
@@ -452,6 +451,8 @@ for heatStorageCapacity in heatStorageCapacity_list
 				println("模型不可行，请检查参数设置！")
 				println("结果已保存到: ", json_filepath)
 			end
+			model = nothing
+			GC.gc()
 		end
 	end
 end

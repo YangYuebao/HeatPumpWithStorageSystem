@@ -252,7 +252,7 @@ function generate_model(
         model = direct_model(COPT.Optimizer())
         # COPT参数设置
         # set_silent(model)
-        set_attribute(model, "TimeLimit", 60*10)
+        set_attribute(model, "TimeLimit", 60*8)
         set_attribute(model, "Presolve", 3)
         set_attribute(model, "Threads", 24)
 
@@ -283,6 +283,7 @@ function generate_model(
         set_attribute(model, "DivingHeurLevel", 3)
         set_attribute(model, "SubMipHeurLevel", 3)
         set_attribute(model, "FAPHeurLevel", 3)
+        set_attribute(model, "LogLevel", 3)
 
     elseif params.solver == :HiGHS
         model = Model(HiGHS.Optimizer)
