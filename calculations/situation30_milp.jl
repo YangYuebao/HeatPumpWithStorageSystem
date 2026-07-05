@@ -32,8 +32,8 @@ end
 #项目设计条件
 # 跳过heatPumpServiceCoff+maxheatStorageInputHour < 1的工况
 heatPumpServiceCoff_list = 0.4:0.2:1.2						# 5
-heatStorageCapacity_list = 2.0:1.0:8						# 7
-maxheatStorageInputHour_list = [0.5,1.0,1.5,2.5,3.5,4.5]	# 6
+heatStorageCapacity_list = [3.0,4.0,5.0,6.0]				# 7
+maxheatStorageInputHour_list = [0.5,1.0,1.5,2.0,3.0]		# 6
 continue_calculate = false
 
 for hs in heatStorageCapacity_list
@@ -487,7 +487,7 @@ function batch_plot_results()
 					data.operationResults.P1,
 					data.operationResults.P2,
 					data.operationResults.P3,
-					data.operationResults.P_el,
+					data.operationResults.P_el+data.operationResults.P_es,
 					zeros(length(data.operationResults.P1))
 				]
 				
