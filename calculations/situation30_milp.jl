@@ -32,9 +32,13 @@ end
 #项目设计条件
 # 跳过heatPumpServiceCoff+maxheatStorageInputHour < 1的工况
 heatPumpServiceCoff_list = 0.4:0.2:1.2						# 5
-heatStorageCapacity_list = [3.0,4.0,5.0,6.0]				# 7
-maxheatStorageInputHour_list = [0.5,1.0,1.5,2.0,3.0]		# 6
+heatStorageCapacity_list = [3.0,4.0,5.0,6.0]				# 4
+maxheatStorageInputHour_list = [0.5,1.0,1.5,2.0,3.0]		# 5
 continue_calculate = false
+
+heatPumpServiceCoff_list = [1.0]						# 5
+heatStorageCapacity_list = [6.0]				# 4
+maxheatStorageInputHour_list = [1.5]		# 5
 
 for hs in heatStorageCapacity_list
 	# 使用 round 确保文件夹名称的一致性，避免浮点精度问题
@@ -198,10 +202,10 @@ end
 # 第三步，计算部分常数
 begin
 	# COP分档信息：
-	T_s_1g_list = [120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 220.0]
-	T_s_2g_list = [120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 220.0]
-	T_s_3g_list = [120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 220.0]
-	T_s_wg_list = [120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 220.0]
+	T_s_1g_list = vcat(120.0:5.0:185.0,220.0)
+	T_s_2g_list = vcat(120.0:5.0:185.0,220.0)
+	T_s_3g_list = vcat(120.0:5.0:185.0,220.0)
+	T_s_wg_list = vcat(120.0:5.0:185.0,220.0)
 
 	m1, m2, m3, mw, COP1v, COP2v, COP3v, COPwv, T1g, T2g, T3g, Twg = getCOP_piecewise_data(
 		designParameters,
@@ -349,11 +353,12 @@ for heatStorageCapacity in heatStorageCapacity_list
 			# 方式一：生成初值（全程热泵供热）
 			initial = generateInitialSolution_HeatPumpOnly(milp_params)
 			model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
+			set_attribute(model, "TimeLimit", 60*15)
 			result, model = solve_model(
 				PressedWaterOneStorageOneCompressor_MILP(),
 				model,
 				milp_params;
-				initial_solution = initial,
+				#initial_solution = initial,
 				#callback = (cb_data, cb_context, model) -> incumbent_callback(cb_data, cb_context, model, convergence_data, milp_params)
 			)
 
@@ -589,7 +594,7 @@ function plot_economic_analysis()
 			grid=true,
 			xlabel="Heat Pump Capacity",
 			ylabel="Cost (CNY)",
-			title="Economic Analysis\nStorage = $(round(storageCap, digits=1)), Max Input Hour = $(round(maxHour, digits=1)) h",
+			title="Economic Analysis\nStorage = $(round(storageCap, digits=1)) kWh, Max Input Hour = $(round(maxHour, digits=1)) h",
 			legend=:topleft,
 			ylim=(0, max_total_PW * 1.05)
 		)

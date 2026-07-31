@@ -62,6 +62,10 @@ struct InitialSolution
     # 容量变量初值（当 optimizeCapacity=true 时使用）
     C_heatpump::Float64            # 热泵容量初值 kW
     C_boiler::Float64              # 电锅炉容量初值 kW
+    
+    # 功率变差变量（用于线性化绝对值约束）
+    dP_pos::Matrix{Float64}        # ΔP_{i,j}^positive [4, n]
+    dP_neg::Matrix{Float64}        # ΔP_{i,j}^negative [4, n]
 end
 
 """
@@ -71,194 +75,33 @@ end
 
 # 参数
 - `T`: 蓄热温度 (℃)
-- `Tg`: 温度分档界限 [m-1]，例如 [130, 140, 150, 160, 170, 180]
+- `Tg`: 温度分档界限 [m+1]，例如 [120, 130, 140, 150, 160, 170, 180, 220]
 
 # 返回
 - 档位索引 j (1 到 m)
 
-# 分档规则
-- 档位1: T <= Tg[1]
-- 档位2: Tg[1] < T <= Tg[2]
+# 分档规则（与模型约束一致）
+- 档位1: T <= Tg[2]
+- 档位2: Tg[2] < T <= Tg[3]
 - ...
-- 档位m: T > Tg[m-1]
+- 档位m: T >= Tg[m]
 """
 function findCOPSegment(T::Float64, Tg::Vector{Float64})
-    m = length(Tg) + 1
-    for j in 1:m-1
-        if T <= Tg[j]
+    m = length(Tg) - 1
+    if T <= Tg[2]
+        return 1
+    end
+    for j in 2:m-1
+        if T <= Tg[j+1]
             return j
         end
     end
-    return m  # 最高档位
+    return m
 end
 
-"""
-    generateInitialSolution_HeatPumpOnly(params::MILPModelParameters)
+include(joinpath(pwd(),"src","systemModels","HSOneStorageOneCompressorMILP","InitialSolutionGenerator","HeatPumpOnly.jl"))
+include(joinpath(pwd(),"src","systemModels","HSOneStorageOneCompressorMILP","InitialSolutionGenerator","DP_InitialSolution.jl"))
 
-生成"全程热泵供热"的初值方案：
-- 蓄热温度恒为 Tuse
-- 运行状态恒为 s1（全程热泵供热）
-
-# 参数
-- `params`: MILP模型参数
-
-# 返回
-- `InitialSolution`: 初值数据结构
-
-# 初值设置说明
-1. **蓄热温度**: Ts[i] = Tuse（用热温度），所有时段温度相同
-2. **运行状态**: s[1, i] = 1，其他状态 = 0（全程热泵供热）
-3. **温度标志**: delta_su = 0，delta_tilde = 0（温度低于 Tu+ΔTs）
-4. **COP分档**: 根据 Tuse 选择对应的温度档位
-5. **功率变量**: 根据热负荷计算热泵功率
-6. **电加热功率**: 为 0（热泵满足全部负荷）
-"""
-function generateInitialSolution_HeatPumpOnly(params::MILPModelParameters)
-    n = params.n_segments
-    m1, m2, m3, mw = params.m1, params.m2, params.m3, params.mw
-    
-    # 1. 蓄热温度：恒为 Tuse
-    Ts = fill(params.Tuse, n + 1)
-    
-    # 2. 运行状态：s1=1，其他=0
-    s = zeros(8, n)
-    s[1, :] .= 1.0
-    
-    # 3. 温度标志：温度低于 Tu+ΔTs，所以 delta_su=0
-    delta_su = zeros(n)
-    delta_tilde = zeros(n)
-    
-    # 4. COP分档：根据 Ts 的温度选择对应档位
-    z1 = zeros(n, m1)
-    z2 = zeros(n, m2)
-    z3 = zeros(n, m3)
-    zw = zeros(n, mw)
-    
-    for i in 1:n
-        Tg1 = params.T1g[i, 2:m1]
-        Tg2 = params.T2g[i, 2:m2]
-        Tg3 = params.T3g[i, 2:m3]
-        Tgw = params.Twg[i, 2:mw]
-        
-        seg1 = findCOPSegment(params.Tuse, Tg1)
-        seg2 = findCOPSegment(params.Tuse, Tg2)
-        seg3 = findCOPSegment(params.Tuse, Tg3)
-        segw = findCOPSegment(params.Tuse, Tgw)
-        
-        z1[i, seg1] = 1.0
-        z2[i, seg2] = 1.0
-        z3[i, seg3] = 1.0
-        zw[i, segw] = 1.0
-    end
-    
-    # 5. COP辅助变量
-    # w1 = y1 * z1, w3 = (1-y1) * z3
-    y1 = zeros(n)
-    w1 = zeros(n, m1)
-    w3 = zeros(n, m3)
-    for i in 1:n
-        w3[i, :] .= z3[i, :]
-    end
-    
-    # 6. 功率变量：根据热负荷计算
-    P_k_s = zeros(8, n, 3)
-    P_k_e = zeros(8, n, 3)
-    
-    for i in 1:n
-        COP1_i = sum(params.COP1v[j, i] * z1[i, j] for j=1:m1)
-        P_k_s[1, i, 1] = min(params.heatLoad[i], params.C_heatpump) / COP1_i
-    end
-    
-    # 7. 电加热功率
-    P_el = max.(params.heatLoad .- params.C_heatpump, 0)
-    P_es = zeros(n)
-    
-    # 8. 热负荷辅助变量
-    u1 = zeros(8, n)
-    u2 = zeros(8, n)
-    u3 = zeros(n)
-    for k in 1:8, i in 1:n
-        u1[k, i] = s[k, i] * (1 - y1[i])
-        if k in [1,2,3,4,5,8]
-            u2[k, i] = u1[k, i] * P_k_s[k, i, 1]
-        else
-            u2[k, i] = u1[k, i] * P_k_e[k, i, 1]
-        end
-    end
-    
-    # 9. 功率乘积辅助变量
-    v1 = zeros(8, n, m1)
-    v2 = zeros(8, n, m1)
-    v3 = zeros(8, n, m2)
-    v4 = zeros(8, n, m2)
-    v5 = zeros(8, n)
-    v6 = zeros(8, n, m3)
-    v7 = zeros(8, n, m1)
-    v8 = zeros(8, n)
-    v9 = zeros(8, n, m2)
-    
-    for k in 1:8, i in 1:n
-        for j in 1:m1
-            v1[k, i, j] = w1[i, j] * s[k, i]
-            if k in [1,2,3,4,5,8]
-                v2[k, i, j] = v1[k, i, j] * P_k_s[k, i, 1]
-            else
-                v2[k, i, j] = v1[k, i, j] * P_k_e[k, i, 1]
-            end
-        end
-        for j in 1:m2
-            v3[k, i, j] = z2[i, j] * s[k, i]
-            v4[k, i, j] = v3[k, i, j] * P_k_s[k, i, 2]
-        end
-        v5[k, i] = s[k, i] * P_k_s[k, i, 3]
-        for j in 1:m3
-            v6[k, i, j] = v5[k, i] * w3[i, j]
-        end
-        for j in 1:m1
-            v7[k, i, j] = v5[k, i] * w1[i, j]
-        end
-        v8[k, i] = s[k, i] * P_k_s[k, i, 2]
-        for j in 1:m2
-            v9[k, i, j] = v8[k, i] * z2[i, j]
-        end
-    end
-    
-    # 10. COP估计值和实际值
-    COP1e = zeros(n)
-    COP2e = zeros(n)
-    COP3e = zeros(n)
-    COPwe = zeros(n)
-    COP1 = zeros(n)
-    COP2 = zeros(n)
-    COP3 = zeros(n)
-    COPw = zeros(n)
-    
-    for i in 1:n
-        COP2e[i] = sum(params.COP2v[j, i] * z2[i, j] for j=1:m2)
-        COPwe[i] = sum(params.COPwv[j, i] * zw[i, j] for j=1:mw)
-        COP2[i] = COP2e[i]
-        COPw[i] = COPwe[i]
-        COP1[i] = (1 - y1[i]) * params.COPca[i] + sum(params.COP1v[j, i] * w1[i, j] for j=1:m1)
-        COP3[i] = sum(params.COP3v[j, i] * w3[i, j] for j=1:m3) + sum(params.COP1v[j, i] * w1[i, j] for j=1:m1)
-    end
-    
-    # 11. 容量变量初值
-    C_heatpump_init = params.C_heatpump
-    C_boiler_init = params.C_boiler
-    
-    return InitialSolution(
-        Ts, s, delta_su, delta_tilde,
-        z1, z2, z3, zw,
-        w1, w3, y1,
-        P_k_s, P_k_e,
-        P_el, P_es,
-        u1, u2, u3,
-        v1, v2, v3, v4, v5, v6, v7, v8, v9,
-        COP1e, COP2e, COP3e, COPwe,
-        COP1, COP2, COP3, COPw,
-        C_heatpump_init, C_boiler_init
-    )
-end
 
 """
     setInitialSolution(model::Model, initial::InitialSolution)
@@ -278,7 +121,7 @@ function setInitialSolution(model::Model, initial::InitialSolution, params::MILP
     if haskey(model, :Ts)
         set_start_value.(model[:Ts], initial.Ts)
     end
-    
+    #=
     # 设置状态初值
     if haskey(model, :s)
         set_start_value.(model[:s], initial.s)
@@ -291,6 +134,7 @@ function setInitialSolution(model::Model, initial::InitialSolution, params::MILP
     if haskey(model, :delta_tilde)
         set_start_value.(model[:delta_tilde], initial.delta_tilde)
     end
+    =#
     
     # 设置COP分档初值
     if haskey(model, :z1)
@@ -305,7 +149,7 @@ function setInitialSolution(model::Model, initial::InitialSolution, params::MILP
     if haskey(model, :zw)
         set_start_value.(model[:zw], initial.zw)
     end
-    
+    #=
     # 设置COP辅助变量初值
     if haskey(model, :w1)
         set_start_value.(model[:w1], initial.w1)
@@ -408,7 +252,15 @@ function setInitialSolution(model::Model, initial::InitialSolution, params::MILP
     if haskey(model, :C_boiler) && params.optimizeCapacity
         set_start_value(model[:C_boiler], initial.C_boiler)
     end
+    
+    # 设置功率变差变量初值
+    if haskey(model, :dP_pos)
+        set_start_value.(model[:dP_pos], initial.dP_pos)
+    end
+    if haskey(model, :dP_neg)
+        set_start_value.(model[:dP_neg], initial.dP_neg)
+    end
+    =#
 end
 
-export findCOPSegment, generateInitialSolution_HeatPumpOnly
-setInitialSolution
+export findCOPSegment, setInitialSolution

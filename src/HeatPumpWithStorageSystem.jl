@@ -53,6 +53,10 @@ for file in readdir(dirname)
 	end
 end
 
+include(joinpath(pwd(), "src", "DPSolver", "DPSolverCore.jl"))
+using .DPSolverCore
+const DC = DPSolverCore
+
 export Refrigerant,OverlapRefrigerant
 export readCOPFile,generateCOPFile,getCOP,getCOP_g_h
 export generateCOP,getOverlapCOP_fixMidTemperature
@@ -112,6 +116,10 @@ for file in readdir(dirname)
 		include(srcpath)
 	end
 end
+
+# DP精确解模块依赖 DesignOptimizeParameters（定义在 operationInterface 中），
+# 因此必须在 operationInterface 之后加载
+include(joinpath(pwd(), "src","systemModels","HSOneStorageOneCompressorMILP","DP_PreciseSolution.jl"))
 
 # 导出用来与设计优化联合的类型和函数
 export DesignOptimizeInput,DesignOptimizeVariables,DesignOptimizeParameters

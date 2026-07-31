@@ -99,7 +99,14 @@ MILP模型参数，包含系统设计参数、外部输入曲线和离散化COP�
 end
 
 # 引入初值相关模块（必须在 MILPModelParameters 定义之后）
-include("HSOneStorageOneCompressorMILP/InitialSolution.jl")
+include(joinpath(pwd(), "src","systemModels","HSOneStorageOneCompressorMILP","InitialSolution.jl"))
+#src\systemModels\HSOneStorageOneCompressorMILP\InitialSolution.jl
+#include("HSOneStorageOneCompressorMILP/DPSolver/DPSolverCore.jl")
+
+# 引入DP精确解模块（基于连续COP的局部搜索）
+# DP_PreciseSolution.jl 需要在 HeatPumpWithStorageSystem.jl 主模块中，operationInterface 之后加载
+# 原因：使用了 DesignOptimizeParameters 类型，该类型在 operationInterface 中定义
+# include(joinpath(pwd(), "src","systemModels","HSOneStorageOneCompressorMILP","DP_PreciseSolution.jl"))
 
 """
     MILPModelResult
@@ -153,7 +160,7 @@ function getCOP_piecewise_data(
     end
     COP2(Ts) = designParameters.COPWater(Ts - designParameters.dT_EvaporationStandard, designParameters.Tuse)
     function COP3(Te, Ts)
-        if Ts + designParameters.dT_EvaporationStandard > designParameters.ThMax
+        if Ts + designParameters.dT_EvaporationStandard >= designParameters.ThMax
             return 1.0
         end
         return designParameters.COPOverlapFunction(Te, Ts + designParameters.dT_EvaporationStandard)
@@ -252,7 +259,7 @@ function generate_model(
         model = direct_model(COPT.Optimizer())
         # COPT参数设置
         # set_silent(model)
-        set_attribute(model, "TimeLimit", 60*8)
+        # set_attribute(model, "TimeLimit", 60*8)
         set_attribute(model, "Presolve", 3)
         set_attribute(model, "Threads", 24)
 
@@ -264,7 +271,7 @@ function generate_model(
         # 2. 根节点割平面强度与轮数
         # 作用: 专门控制根节点上的割。根节点割得好，能大幅提升初始下界。
         # 建议: 将强度设为 2，并将轮数从默认的少轮增加到 10 轮。
-        set_attribute(model, "RootCutLevel", 3)
+        #set_attribute(model, "RootCutLevel", 3)
         #set_attribute(model, "RootCutRounds", 10)
         
         # 3. 搜索树中的割平面策略
@@ -284,6 +291,7 @@ function generate_model(
         set_attribute(model, "SubMipHeurLevel", 3)
         set_attribute(model, "FAPHeurLevel", 3)
         set_attribute(model, "LogLevel", 3)
+        set_attribute(model, "MipStartMode", 2)
 
     elseif params.solver == :HiGHS
         model = Model(HiGHS.Optimizer)
@@ -321,6 +329,8 @@ function generate_model(
     """
     # 定义状态变量 (使用 SOS1 约束)
     @variable(model, 0 <= s[1:8, 1:n] <= 1)
+    @constraint(model,[i=1:n], s[4, i] == 0.0)
+    @constraint(model,[i=1:n], s[8, i] == 0.0)
     
     # 文档2.1.1节: 状态唯一性约束
     @constraint(model, state_unique[i=1:n], sum(s[k, i] for k=1:8) == 1)
@@ -357,7 +367,7 @@ function generate_model(
     """
     @constraint(model, s4_temp_rise[i=1:n], Ts[i+1] - Ts[i] <= M1 * (1 - s[4, i]))
     @constraint(model, s4_temp_lower[i=1:n], params.Tuse + params.dTs - Ts[i+1] <= M3 * (1 - s[4, i]))
-
+    #=
     # --- δ_su: 蓄热温度高于T_u+ΔT_s标志 ---
     # --- δ̃: 蓄热温度从高到低过渡标志 ---
     """
@@ -396,6 +406,7 @@ function generate_model(
     ∑_{i=1}^{n} s6,i = ∑_{i=1}^{n} δ̃_i
     ∑_{i=k}^{n} s6,i ≤ ∑_{i=k}^{n} δ̃_i + 1, k=1,...,n
     """
+    
     for k in 1:n-1
         @constraint(model, sum(s[6, i] for i=1:k) <= sum(delta_tilde[i] for i=1:k))
     end
@@ -403,6 +414,7 @@ function generate_model(
     for k in 1:n-1
         @constraint(model, sum(s[6, i] for i=k:n) <= sum(delta_tilde[i] for i=k:n) + 1)
     end
+    =#
 
     """
     文档2.1.2.5节:
@@ -410,13 +422,13 @@ function generate_model(
     T_s,i - T_c,max + ΔT_s ≤ M2·(1-s7,i)
     T_s,i - T_s,i+1 ≤ M1·(1-s8,i)
     T_s,i - T_c,max + ΔT_s ≤ M2·(1-s8,i)
-    T_{s,i}  >= T_u - M_1(1- s_{8,i})
+    #T_{s,i}  >= T_u - M_1(1- s_{8,i})
     """
     @constraint(model, s7_temp_drop[i=1:n], Ts[i] - Ts[i+1] <= M1 * (1 - s[7, i]))
     @constraint(model, s7_temp_upper[i=1:n], Ts[i] - params.Tcmax + params.dTs <= M2 * (1 - s[7, i]))
     @constraint(model, s8_temp_drop[i=1:n], Ts[i] - Ts[i+1] <= M1 * (1 - s[8, i]))
     @constraint(model, s8_temp_upper[i=1:n], Ts[i] - params.Tcmax + params.dTs <= M2 * (1 - s[8, i]))
-    @constraint(model, s8_temp_lower[i=1:n], Ts[i] >= params.Tuse - params.dTs - M1 * (1 - s[8, i]))
+    #@constraint(model, s8_temp_lower[i=1:n], Ts[i] >= params.Tuse - params.dTs - M1 * (1 - s[8, i]))
 
 
     """
@@ -433,23 +445,34 @@ function generate_model(
     @variable(model, 0 <= w1[1:n, 1:m1] <= 1)
     @variable(model, 0 <= w3[1:n, 1:m3] <= 1)
     
+    if params.T1g == params.T2g == params.T3g == params.Twg
+        @info("params.T1g == params.T2g == params.T3g == params.Twg，所有温度档位相同")
+    end
     # 添加 SOS1 约束和唯一性约束
     for i in 1:n
         # COP1 分档 SOS1 约束 (匿名约束)
         @constraint(model, sum(z1[i, j] for j=1:m1) == 1)
         @constraint(model, z1[i, :] in MOI.SOS1(collect(1.0:m1)))
         
-        # COP2 分档 SOS1 约束
-        @constraint(model, sum(z2[i, j] for j=1:m2) == 1)
-        @constraint(model, z2[i, :] in MOI.SOS1(collect(1.0:m2)))
-        
-        # COP3 分档 SOS1 约束
-        @constraint(model, sum(z3[i, j] for j=1:m3) == 1)
-        @constraint(model, z3[i, :] in MOI.SOS1(collect(1.0:m3)))
-        
-        # COPw 分档 SOS1 约束
-        @constraint(model, sum(zw[i, j] for j=1:mw) == 1)
-        @constraint(model, zw[i, :] in MOI.SOS1(collect(1.0:mw)))
+        if params.T1g == params.T2g == params.T3g == params.Twg
+            for j in 1:m1
+                @constraint(model, z1[i, j] == z2[i, j])
+                @constraint(model, z2[i, j] == z3[i, j])
+                @constraint(model, z3[i, j] == zw[i, j])
+            end
+        else
+            # COP2 分档 SOS1 约束
+            @constraint(model, sum(z2[i, j] for j=1:m2) == 1)
+            @constraint(model, z2[i, :] in MOI.SOS1(collect(1.0:m2)))
+            
+            # COP3 分档 SOS1 约束
+            @constraint(model, sum(z3[i, j] for j=1:m3) == 1)
+            @constraint(model, z3[i, :] in MOI.SOS1(collect(1.0:m3)))
+            
+            # COPw 分档 SOS1 约束
+            @constraint(model, sum(zw[i, j] for j=1:mw) == 1)
+            @constraint(model, zw[i, :] in MOI.SOS1(collect(1.0:mw)))
+        end
     end
     
     # COP估计值 COP_{1e,2e,3e,we,i}

@@ -14,15 +14,14 @@ using CoolProp
 using COPT, JuMP
 
 #=
-封装了用于设计优化的函数
-发布分支design_optimize
+测试DP生成初始解
 =#
 
-situation = "situation29"
+situation = "situation31"
 #第一步，指定设计条件变量
 #项目设计条件
 begin
-	heatPumpServiceCoff, heatStorageCapacity, maxheatStorageInputHour = 1.0, 6.0, 1.5
+	heatPumpServiceCoff, heatStorageCapacity, maxheatStorageInputHour = 0.4, 3.0, 0.5
 	
 	#=
 	hourlyTariff = zeros(24)
@@ -90,32 +89,10 @@ begin
 	refrigerant = R1233zdE_Water
 	sysStruct = RecycleStruct(1, 0, 0)
 
-	# 统计每个时间段长度
-	idx = 1
-	dt_list = [1]
-	segmentHeatLoad = [heatConsumptionPower[1]]
-	segmentTariff = [hourlyTariff[1]]
-	segmentTair = [Tair[1]]
-	for i in 2:length(hourlyTariff)
-		global idx
-		if hourlyTariff[i] == hourlyTariff[i-1] && heatConsumptionPower[i] == heatConsumptionPower[i-1] && Tair[i] == Tair[i-1]
-			dt_list[idx] += 1
-		else
-			push!(dt_list, 1)
-			push!(segmentHeatLoad, heatConsumptionPower[i])
-			push!(segmentTariff, hourlyTariff[i])
-			push!(segmentTair, Tair[i])
-			idx += 1
-		end
-	end
-	dt_list *= dt
-
-	inner_divide = 1
-
-	dt_list = repeat(dt_list, inner = inner_divide)/inner_divide
-	segmentHeatLoad = repeat(segmentHeatLoad, inner = inner_divide)
-	segmentTariff = repeat(segmentTariff, inner = inner_divide)
-	segmentTair = repeat(segmentTair, inner = inner_divide)
+	segmentHeatLoad = heatConsumptionPower[1:48]
+	segmentTariff = hourlyTariff[1:48]
+	segmentTair = Tair[1:48]
+	dt_list = ones(length(segmentHeatLoad)) * dt
 	
 	t_list = vcat(0.0, cumsum(dt_list))
 
@@ -195,10 +172,10 @@ begin
 	n = length(dt_list)
 
 	# COP分档信息：
-	T_s_1g_list = vcat(120.0:5.0:185.0,220.0)
-	T_s_2g_list = vcat(120.0:5.0:185.0,220.0)
-	T_s_3g_list = vcat(120.0:5.0:185.0,220.0)
-	T_s_wg_list = vcat(120.0:5.0:185.0,220.0)
+	T_s_1g_list = vcat(120.0:2.0:185.0,220.0)
+	T_s_2g_list = vcat(120.0:2.0:185.0,220.0)
+	T_s_3g_list = vcat(120.0:2.0:185.0,220.0)
+	T_s_wg_list = vcat(120.0:2.0:185.0,220.0)
 
 	m1, m2, m3, mw, COP1v, COP2v, COP3v, COPwv, T1g, T2g, T3g, Twg = getCOP_piecewise_data(
 		designParameters,
@@ -487,11 +464,19 @@ begin
 		display(plt)
 	end
 end
-# 方式一：生成初值（全程热泵供热）
-initial = generateInitialSolution_HeatPumpOnly(milp_params)
+sysVariables = HeatPumpWithStorageSystem.SysVariables(milp_params.heatLoad, milp_params.segmentTariff,1e-2)
+
+# DP参数: n=温度系数量, q=单位热份数, solver_type=求解器类型, dt=时间步长
+dp_params = HeatPumpWithStorageSystem.DP_INITIAL_PARAMS(10, Int(1/dt), :Exhaustive, 0.5)
+
+initial,initial_cost = generateInitialSolution_DP(dp_params, milp_params, sysVariables)
+
 model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
-set_attribute(model, "TimeLimit", 40)
+set_attribute(model, "TimeLimit", 10)
+set_attribute(model, "MipStartMode", 2)
+#set_objective_function(model, 0.0)
 #fix(model[:Ts][5], 120.0,force=true)
+#initial.Ts[:] = precise_solution.Ts[:]
 @time result, model = solve_model(PressedWaterOneStorageOneCompressor_MILP(), model, milp_params;
 	initial_solution = initial,
 	#callback = (cb_data, cb_context, model) -> incumbent_callback(cb_data, cb_context, model, convergence_data, milp_params)
@@ -508,27 +493,7 @@ set_attribute(model, "TimeLimit", 40)
 	isFeasible = primal_status(model) in [FEASIBLE_POINT, NEARLY_FEASIBLE_POINT]
 =#
 
-# 调优
-#=
-	#优化求解参数
-	MOI.set(model, MOI.RawOptimizerAttribute("TuneMode"), 0)
-	MOI.set(model, MOI.RawOptimizerAttribute("TuneMethod"), 0)
-	MOI.set(model, MOI.RawOptimizerAttribute("TuneTimeLimit"), 1200.0)
-	MOI.set(model, MOI.RawOptimizerAttribute("TuneOutputLevel"), 2)
 
-	optimizer = JuMP.backend(model)
-	prob = optimizer.prob
-	COPT.COPT_Tune(prob)
-	num_results = Ref{Cint}()
-	COPT.COPT_GetIntAttr(prob, "TuneResults", num_results)
-	println("调优结果数量: ", num_results[])
-	COPT.COPT_LoadTuneParam(prob, 0)
-
-	COPT.COPT_WriteTuneParam(prob, 0, joinpath(pwd(),"calculations",situation, "best_tune.par"))
-	println("已保存最佳调优结果到 best_tune.par")
-	#COPT.COPT_ReadParam(new_prob, "best_tune.par")
-	#println("已从 best_tune.par 加载参数")
-=#
 
 # 输出结果
 println("\n========== MILP求解结果 ==========")
@@ -566,137 +531,71 @@ else
 	println("模型不可行，请检查参数设置！")
 end
 
+# ========== 阶段3: DP精确解 ==========
+# 使用连续COP函数，以MILP解为起点进行局部搜索改善
+if result.isFeasible
+    println("\n========== 阶段3: DP精确解求解 ==========")
 
+    # 从MILP解中提取温度轨线
+    Ts_milp = result.Ts
 
-
-println("\n========== 求解结束 ==========")
-
-# =============================================================
-# heat_k17 诊断函数：检查从参数到辅助变量再到原始变量的完整链路
-# =============================================================
-#=
-function diagnose_heat_k17(model, params, result)
-    n = params.n_segments
-    m1 = params.m1
-    m2 = params.m2
-    
-    println("\n\n========== heat_k17 详细诊断 ==========")
-    println("格式说明：heat_k17[i] = sum_{k=1..7} [COPca[i]*u2[k,i] + sum_{j=1..m1} COP1v[j,i]*v2[k,i,j] + sum_{j=1..m2} COP2v[j,i]*v4[k,i,j]]")
-    
-    for i in 1:1
-        println("\n" * "="^80)
-        println("时段 $i / $n")
-        println("="^80)
-        
-        println("\n【参数值】")
-        println("COPca[$i] = $(params.COPca[i])")
-        println("heatLoad[$i] = $(params.heatLoad[i])")
-        println("Ts[$i] = $(result.Ts[i])")
-        println("实际状态 = $(result.states[i])")
-        
-        println("\n【COP分档参数】")
-        println("COP1v[:, $i] = $(params.COP1v[:, i])")
-        println("COP2v[:, $i] = $(params.COP2v[:, i])")
-        println("T1g[$i, :] = $(params.T1g[i, :])")
-        println("T2g[$i, :] = $(params.T2g[i, :])")
-        
-        total_heat_k17 = 0.0
-        total_from_u2 = 0.0
-        total_from_v2 = 0.0
-        total_from_v4 = 0.0
-        
-        for k in 1:7
-            s_val = value(model[:s][k, i])
-            P_k_s_val = value(model[:P_k_s][k, i, 1])
-            u2_val = value(model[:u2][k, i])
-            
-            println("\n--- 状态 k=$k ---")
-            println("s[$k,$i] = $s_val")
-            println("P_k_s[$k,$i,1] (起始功率) = $P_k_s_val")
-            println("u2[$k,$i] = s * P_k_s = $u2_val")
-            println("  验证: u2 = s * P_k_s = $(s_val * P_k_s_val)")
-            
-            # COPca贡献
-            copca_contrib = params.COPca[i] * u2_val
-            total_from_u2 += copca_contrib
-            println("  COPca贡献 = COPca[$i] * u2[$k,$i] = $(params.COPca[i]) * $u2_val = $copca_contrib")
-            
-            # v2贡献 (COP1v)
-            v2_contrib = 0.0
-            for j in 1:m1
-                v2_val = value(model[:v2][k, i, j])
-                contrib = params.COP1v[j, i] * v2_val
-                v2_contrib += contrib
-                if v2_val > 1e-6
-                    println("  v2[$k,$i,$j] = $v2_val, COP1v[$j,$i] = $(params.COP1v[j,i])")
-                    println("    贡献 = $(params.COP1v[j,i]) * $v2_val = $contrib")
-                end
-            end
-            total_from_v2 += v2_contrib
-            println("  COP1v总贡献 = $v2_contrib")
-            
-            # v4贡献 (COP2v)
-            v4_contrib = 0.0
-            for j in 1:m2
-                v4_val = value(model[:v4][k, i, j])
-                contrib = params.COP2v[j, i] * v4_val
-                v4_contrib += contrib
-                if v4_val > 1e-6
-                    println("  v4[$k,$i,$j] = $v4_val, COP2v[$j,$i] = $(params.COP2v[j,i])")
-                    println("    贡献 = $(params.COP2v[j,i]) * $v4_val = $contrib")
-                end
-            end
-            total_from_v4 += v4_contrib
-            println("  COP2v总贡献 = $v4_contrib")
-            
-            k_total = copca_contrib + v2_contrib + v4_contrib
-            total_heat_k17 += k_total
-            
-            # 详细分解三项
-            u2_contrib = params.COPca[i] * u2_val
-            v2_sum = 0.0
-            v4_sum = 0.0
-            for j in 1:m1
-                v2_j = value(model[:v2][k, i, j])
-                v2_sum += params.COP1v[j, i] * v2_j
-            end
-            for j in 1:m2
-                v4_j = value(model[:v4][k, i, j])
-                v4_sum += params.COP2v[j, i] * v4_j
-            end
-            
-            println("  状态 k=$k 供热分解:")
-            println("    第1项: COPca[$i] * u2[$k,$i] = $(params.COPca[i]) * $u2_val = $u2_contrib")
-            println("    第2项: sum_{j=1..$m1} COP1v[j,$i] * v2[$k,$i,j] = $v2_sum")
-            println("    第3项: sum_{j=1..$m2} COP2v[j,$i] * v4[$k,$i,j] = $v4_sum")
-            println("    总供热 = $k_total")
-        end
-        
-        println("\n【时段 $i 汇总】")
-        println("heat_k17[$i] (计算值) = $total_heat_k17")
-        println("heat_k17[$i] (结果值) = $(result.heat_k17[i])")
-        println("heat_k8[$i] = $(result.heat_k8[i])")
-        println("P_el[$i] (电加热补热) = $(result.P_el[i])")
-        println("总供热 = $(result.heat_total[i])")
-        println("热负荷需求 = $(params.heatLoad[i])")
-        println("供热余量 = $(result.heat_total[i] - params.heatLoad[i])")
-        
-        # 验证约束
-        if result.heat_total[i] >= params.heatLoad[i] - 1e-6
-            println("✓ 热负荷约束满足: heat_total >= heatLoad")
+    # 生成各时刻的Tair列表
+    # Tair_list[t] 对应 t_list[t] 时刻的环境温度
+    # 注意: Tair[t] 对应 t_list[t+1] 时刻（即时段t的末尾）
+    # 这里用时段起始和结束的Tair
+    Tair_list = Float64[]
+    for t in 1:length(t_list)
+        # t_list[t] 时刻对应的Tair
+        # Tair[1] 对应 t_list[2]=dt 时刻，Tair[2] 对应 t_list[3]=2dt 时刻...
+        # t_list[1]=0, 对应第一个Tair需要特殊处理
+        if t == 1
+            push!(Tair_list, Tair[1])  # 起始时刻用第一个Tair
         else
-            println("✗ 热负荷约束不满足!")
+            push!(Tair_list, Tair[t-1])
         end
     end
-    
-    println("\n" * "="^80)
-    println("诊断结束")
-    println("="^80)
+
+    # 构建sysVariables（如果没有定义）
+    if !@isdefined(sysVariables)
+        sysVariables = HeatPumpWithStorageSystem.HSOneStorageOneCompressorMILP.SysVariables(
+            segmentHeatLoad, segmentTariff
+        )
+    end
+
+    # DP精确解参数
+    dp_precise_params = HeatPumpWithStorageSystem.DP_PRECISE_PARAMS(
+        dt,    # 时间步长
+        3,     # 初始局部状态数
+        5,     # 最大局部状态数
+        4.0,   # 初始温度步长 (℃)
+        0.2,   # 最小温度步长 (℃)
+        50,    # 最大迭代次数
+        4.0    # y_s6: 两次s6最小间隔 (h)，0表示无约束
+    )
+
+    # 求解DP精确解
+    precise_solution = HeatPumpWithStorageSystem.solvePreciseDP(
+        Ts_milp,
+        dp_precise_params,
+        designParameters,
+        milp_params,
+        sysVariables,
+        Tair_list
+    )
+
+    # 输出结果
+    println("\nDP精确解结果:")
+    println("收敛状态: ", precise_solution.converged ? "已收敛" : "未收敛")
+    println("总成本: ", round(precise_solution.cost, digits=4))
+    println("温度轨线: ", round.(precise_solution.Ts, digits=2))
+    println("状态序列: ", precise_solution.states)
+    println("P1 (kW): ", round.(precise_solution.P1, digits=2))
+    println("P2 (kW): ", round.(precise_solution.P2, digits=2))
+    println("P3 (kW): ", round.(precise_solution.P3, digits=2))
+    println("Pe_l (kW): ", round.(precise_solution.Pe_l, digits=2))
+    println("Pe_s (kW): ", round.(precise_solution.Pe_s, digits=2))
 end
-=#
-#=
-if result.isFeasible
-    diagnose_heat_k17(model, milp_params, result)
-end
-=#
+plot([initial.Ts result.Ts precise_solution.Ts],label=["DP initial" "MILP" "DP accurate"]) |> display
+println("\n========== 求解结束 ==========")
+
 
