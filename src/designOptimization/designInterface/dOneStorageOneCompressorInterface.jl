@@ -55,9 +55,12 @@ function totalPresentWorth(
 	# 运行费折现系数
 	annuity_pv_factor = (1 - (1 + i)^(-n)) / i
 
+	# 运行成本现值（与基准电价成正比，经济性分析时可直接按电价缩放）
+	operatingPV = annualOperationCost * annuity_pv_factor
+
 	# 总现值
-	pw = capitalCost + annualOperationCost * annuity_pv_factor
-	return pw,capitalCost,annuity_pv_factor
+	pw = capitalCost + operatingPV
+	return pw, capitalCost, operatingPV, annuity_pv_factor
 end
 
 # 双层优化最低总成本

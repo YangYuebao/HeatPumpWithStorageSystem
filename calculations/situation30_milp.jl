@@ -366,7 +366,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 			# 写入结果
 			if result.isFeasible
 				annualOperationCost = result.C_operation * annualDays
-				pw, capitalCost, annuity_pv_factor = totalPresentWorth(
+				pw, capitalCost, operatingPV, annuity_pv_factor = totalPresentWorth(
 					PressedWaterOneStorageOneCompressor(),
 					fp,
 					result.C_operation,

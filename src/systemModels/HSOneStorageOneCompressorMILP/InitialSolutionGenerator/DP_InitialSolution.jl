@@ -12,7 +12,11 @@ struct DP_INITIAL_PARAMS
     q::Int
     solver_type::Symbol
 	dt::Float64
+	y_s6::Float64	# 两次s6最小间隔 (h)，0表示无约束（仅 cop_mode=:continuous 生效）
 end
+# 兼容旧4参数构造（y_s6 默认0 = 无约束）
+DP_INITIAL_PARAMS(n::Int, q::Int, solver_type::Symbol, dt::Float64) =
+    DP_INITIAL_PARAMS(n, q, solver_type, dt, 0.0)
 
 """
 系统变量结构体，封装各时段的热负荷和电价
@@ -800,7 +804,7 @@ function buildCostTensor(Ts_list::Vector{Float64}, nt::Int, dt::Float64,
 
     nT = length(Ts_list)
 
-    C = fill(Inf, nt, nT, nT)
+    C = fill(9999.0, nt, nT, nT)
 
     stateMatrix = zeros(Int, nt, nT, nT)
 
@@ -935,7 +939,10 @@ end
 """
 function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
     params::MILPModelParameters,
-    sysVariables)
+    sysVariables;
+    cop_mode::Symbol = :piecewise,      # :piecewise 分档COP（默认，与MILP一致）| :continuous 连续COP函数（与DP精确解一致）
+    designParameters = nothing,         # cop_mode=:continuous 时必须传入 designParameters
+)
 
     n = params.n_segments
     m1 = params.m1
@@ -944,6 +951,15 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
     mw = params.mw
     dt = dp_params.dt
 
+    # 是否启用s6最小间隔约束（仅连续COP模式支持，分档模式s4/s6共用同一计算无法分离）
+    use_s6 = (cop_mode == :continuous) && dp_params.y_s6 > 0.0
+
+    # 连续COP模式：构造各时刻环境温度列表（由 params.Tair 提供，不足nt+1时补末值）
+    Tair_list = collect(params.Tair)
+    while length(Tair_list) < n + 1
+        push!(Tair_list, Tair_list[end])
+    end
+
     # 生成温度状态空间字典（多个温度系）
     T_state_space = get_temperature_state_space(dp_params.n, dp_params.q, params)
 
@@ -951,8 +967,8 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
     @info "温度系数量: $(length(T_state_space)), 时段数: $n"
 
     # 记录最优结果
-    best_cost = Inf
-    best_T_key = NaN
+    best_cost = 9999.0
+    best_T_key = -1
     best_TsIndexList = nothing
     best_Ts_list = nothing
     best_stateMatrix = nothing
@@ -967,6 +983,13 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
     best_PeelMatrix = nothing
     best_PeesMatrix = nothing
     best_lambdaMatrix = nothing
+    # 连续COP模式的s6专用最优矩阵（分档模式不使用）
+    best_WaitIndexList = Int[]
+    best_P2s_s6_Matrix = nothing
+    best_Pesl_s6_Matrix = nothing
+    best_P1e_s6_Matrix = nothing
+    best_Peel_s6_Matrix = nothing
+    best_lambda_s6_Matrix = nothing
 
     # 对每个温度系分别求解DP，选择成本最低的
     for (T_key, Ts_list) in T_state_space
@@ -975,33 +998,94 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
 
         @info "求解温度系: 起始温度=$(T_key), 状态数=$(nT)"
 
-        # 构建状态转移功率成本张量（不乘电价）
-        C_power, stateMatrix,
-        P1sMatrix, P2sMatrix, P3sMatrix,
-        P1eMatrix, P2eMatrix, P3eMatrix,
-        PeslMatrix, PessMatrix, PeelMatrix, PeesMatrix,
-        lambdaMatrix = buildCostTensor(
-            Ts_list, nt, dt, params, sysVariables
-        )
+        if cop_mode == :continuous
+            @assert designParameters !== nothing "cop_mode=:continuous 需要传入 designParameters"
 
-        # 根据各时段电价将功率成本转换为经济成本
-        C_economic = fill(Inf, nt, nT, nT)
-        for t in 1:nt
-            price_t = sysVariables.price[t]
-            for i in 1:nT
-                for j in 1:nT
-                    if C_power[t, i, j] < Inf
-                        C_economic[t, i, j] = C_power[t, i, j] * price_t * dt
+            # 连续COP模式：复用精确解的张量构建（各时刻状态空间相同，首列重复）
+            TsMatrix = repeat(reshape(Ts_list, :, 1), 1, nt + 1)
+            Cn_power, Cs_power, stateMatrix,
+            P1sMatrix, P2sMatrix, P3sMatrix,
+            P1eMatrix, P2eMatrix, P3eMatrix,
+            PeslMatrix, PessMatrix, PeelMatrix, PeesMatrix,
+            lambdaMatrix, P2s_s6_Matrix, Pesl_s6_Matrix, P1e_s6_Matrix, Peel_s6_Matrix, lambda_s6_Matrix =
+                buildCostTensor_Precise(
+                    TsMatrix, nt, dt, designParameters, params, sysVariables, Tair_list;
+                    y_s6 = dp_params.y_s6,
+                    extra_forbidden = Set{Int}([7, 8]),   # 初始解禁用s7/s8
+                )
+
+            # 根据各时段电价将功率成本转换为经济成本
+            if use_s6
+                Cn_econ = fill(9999.0, nt, nT, nT)
+                Cs_econ = fill(9999.0, nt, nT, nT)
+                for t in 1:nt
+                    price_t = sysVariables.price[t]
+                    for i in 1:nT
+                        for j in 1:nT
+                            if Cn_power[t, i, j] < 9999.0
+                                Cn_econ[t, i, j] = Cn_power[t, i, j] * price_t * dt
+                            end
+                            if Cs_power[t, i, j] < 9999.0
+                                Cs_econ[t, i, j] = Cs_power[t, i, j] * price_t * dt
+                            end
+                        end
+                    end
+                end
+
+                # 图DP求解（带s6间隔约束）
+                cost, TsIndexList, WaitIndexList, best_start_idx, best_wait_idx =
+                    DC.GraphLayerSolver(Cn_econ, Cs_econ, nT, nt, dp_params.y_s6, dt)
+            else
+                C_economic = fill(9999.0, nt, nT, nT)
+                for t in 1:nt
+                    price_t = sysVariables.price[t]
+                    for i in 1:nT
+                        for j in 1:nT
+                            if Cn_power[t, i, j] < 9999.0
+                                C_economic[t, i, j] = Cn_power[t, i, j] * price_t * dt
+                            end
+                        end
+                    end
+                end
+
+                # 标准DP求解（无s6约束）
+                if dp_params.solver_type == :Exhaustive
+                    cost, TsIndexList, best_start_idx = DC.ExhaustiveSolver(C_economic, nT, nt)
+                else
+                    cost, TsIndexList, best_start_idx = DC.GoldenRatioSolver(C_economic, nT, nt)
+                end
+                WaitIndexList = Int[]
+            end
+        else
+            # 分档COP模式：与MILP一致，取时段末温度对应档位COP
+            C_power, stateMatrix,
+            P1sMatrix, P2sMatrix, P3sMatrix,
+            P1eMatrix, P2eMatrix, P3eMatrix,
+            PeslMatrix, PessMatrix, PeelMatrix, PeesMatrix,
+            lambdaMatrix = buildCostTensor(
+                Ts_list, nt, dt, params, sysVariables
+            )
+
+            # 根据各时段电价将功率成本转换为经济成本
+            C_economic = fill(9999.0, nt, nT, nT)
+            for t in 1:nt
+                price_t = sysVariables.price[t]
+                for i in 1:nT
+                    for j in 1:nT
+                        if C_power[t, i, j] < 9999.0
+                            C_economic[t, i, j] = C_power[t, i, j] * price_t * dt
+                        end
                     end
                 end
             end
-        end
 
-        # 求解DP
-        cost, TsIndexList, best_start_idx = if dp_params.solver_type == :Exhaustive
-            DC.ExhaustiveSolver(C_economic, nT, nt)
-        else
-            DC.GoldenRatioSolver(C_economic, nT, nt)
+            # 求解DP
+            cost, TsIndexList, best_start_idx = if dp_params.solver_type == :Exhaustive
+                DC.ExhaustiveSolver(C_economic, nT, nt)
+            else
+                DC.GoldenRatioSolver(C_economic, nT, nt)
+            end
+            WaitIndexList = Int[]
         end
 
         @info "温度系 起始温度=$(T_key) 求解完成，成本: $(cost)"
@@ -1012,6 +1096,14 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
             best_T_key = T_key
             best_TsIndexList = TsIndexList
             best_Ts_list = Ts_list
+            if cop_mode == :continuous
+                best_WaitIndexList = copy(WaitIndexList)
+                best_P2s_s6_Matrix = copy(P2s_s6_Matrix)
+                best_Pesl_s6_Matrix = copy(Pesl_s6_Matrix)
+                best_P1e_s6_Matrix = copy(P1e_s6_Matrix)
+                best_Peel_s6_Matrix = copy(Peel_s6_Matrix)
+                best_lambda_s6_Matrix = copy(lambda_s6_Matrix)
+            end
             best_stateMatrix = stateMatrix
             best_P1sMatrix = P1sMatrix
             best_P2sMatrix = P2sMatrix
@@ -1047,7 +1139,7 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
 
     Ts_result = Ts_list[TsIndexList]
 
-    if best_cost >= Inf
+    if best_cost >= 9999.0
         @warn "动态规划未找到可行解，使用默认初始温度"
         Ts_result = fill(params.Tsmin, n+1)
         TsIndexList = fill(1, n+1)
@@ -1071,19 +1163,69 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
         idx_start = TsIndexList[i]
         idx_end = TsIndexList[i+1]
 
-        states[i] = stateMatrix[i, idx_start, idx_end]
-        P1s_list[i] = P1sMatrix[i, idx_start, idx_end]
-        P2s_list[i] = P2sMatrix[i, idx_start, idx_end]
-        P3s_list[i] = P3sMatrix[i, idx_start, idx_end]
-        P1e_list[i] = P1eMatrix[i, idx_start, idx_end]
-        P2e_list[i] = P2eMatrix[i, idx_start, idx_end]
-        P3e_list[i] = P3eMatrix[i, idx_start, idx_end]
-        Pe_l_list[i] = PeslMatrix[i, idx_start, idx_end] + PeelMatrix[i, idx_start, idx_end]
-        Pe_s_list[i] = PessMatrix[i, idx_start, idx_end] + PeesMatrix[i, idx_start, idx_end]
+        # s6判断：连续COP模式启用y_s6时，wait被重置为0表示该时段使用了s6
+        s6_used = use_s6 && (best_WaitIndexList[i+1] == 0)
+
+        if s6_used
+            # s6状态：从s6专用矩阵提取（状态6没有P1s, P3s, Pess, Pees, P2e, P3e）
+            states[i] = 6
+            P1s_list[i] = 0.0
+            P2s_list[i] = best_P2s_s6_Matrix[i, idx_start, idx_end]
+            P3s_list[i] = 0.0
+            P1e_list[i] = best_P1e_s6_Matrix[i, idx_start, idx_end]
+            P2e_list[i] = 0.0
+            P3e_list[i] = 0.0
+            Pe_l_list[i] = best_Pesl_s6_Matrix[i, idx_start, idx_end] + best_Peel_s6_Matrix[i, idx_start, idx_end]
+            Pe_s_list[i] = 0.0
+            lambda_list[i] = best_lambda_s6_Matrix[i, idx_start, idx_end]
+        else
+            states[i] = stateMatrix[i, idx_start, idx_end]
+            P1s_list[i] = P1sMatrix[i, idx_start, idx_end]
+            P2s_list[i] = P2sMatrix[i, idx_start, idx_end]
+            P3s_list[i] = P3sMatrix[i, idx_start, idx_end]
+            P1e_list[i] = P1eMatrix[i, idx_start, idx_end]
+            P2e_list[i] = P2eMatrix[i, idx_start, idx_end]
+            P3e_list[i] = P3eMatrix[i, idx_start, idx_end]
+            Pe_l_list[i] = PeslMatrix[i, idx_start, idx_end] + PeelMatrix[i, idx_start, idx_end]
+            Pe_s_list[i] = PessMatrix[i, idx_start, idx_end] + PeesMatrix[i, idx_start, idx_end]
+            lambda_list[i] = lambdaMatrix[i, idx_start, idx_end]
+        end
         P1_list[i] = P1s_list[i] + P1e_list[i]
         P2_list[i] = P2s_list[i] + P2e_list[i]
         P3_list[i] = P3s_list[i] + P3e_list[i]
-        lambda_list[i] = lambdaMatrix[i, idx_start, idx_end]
+    end
+
+    # 从 best_cost 中扣除功率正则项（仅连续COP模式带epsilon平滑，分档模式无正则项）
+    if cop_mode == :continuous
+        regularization_sum = 0.0
+        epsilon = sysVariables.epsilon
+        for t in 1:n
+            i = TsIndexList[t]
+            j = TsIndexList[t+1]
+            price_t = sysVariables.price[t]
+            s6_used = use_s6 && (best_WaitIndexList[t+1] == 0)
+            if s6_used
+                P2s_s6 = best_P2s_s6_Matrix[t, i, j]
+                P1e_s6 = best_P1e_s6_Matrix[t, i, j]
+                Pesl_s6 = best_Pesl_s6_Matrix[t, i, j]
+                Peel_s6 = best_Peel_s6_Matrix[t, i, j]
+                reg_t = epsilon * ((P2s_s6 + P1e_s6)^2 + (Pesl_s6 + Peel_s6)^2)
+            else
+                P1s = best_P1sMatrix[t, i, j]
+                P1e = best_P1eMatrix[t, i, j]
+                P2s = best_P2sMatrix[t, i, j]
+                P2e = best_P2eMatrix[t, i, j]
+                P3s = best_P3sMatrix[t, i, j]
+                P3e = best_P3eMatrix[t, i, j]
+                Pesl = best_PeslMatrix[t, i, j]
+                Pess = best_PessMatrix[t, i, j]
+                Peel = best_PeelMatrix[t, i, j]
+                Pees = best_PeesMatrix[t, i, j]
+                reg_t = epsilon * ((P1s + P1e)^2 + (P2s + P2e)^2 + (P3s + P3e)^2 + (Pesl + Pess + Peel + Pees)^2)
+            end
+            regularization_sum += reg_t * price_t * dt
+        end
+        best_cost -= regularization_sum
     end
 
     s = zeros(8, n)

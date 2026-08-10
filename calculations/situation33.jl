@@ -2,9 +2,7 @@
 
 # 使用经济性优化需要在项目主目录下切换到calculations环境
 #=
-situation32: 结合situation30的多参数遍历和situation31的DP-MILP-DP三阶段流程
-用于测试不同热泵容量、蓄热容量、储热时长下，DP初始解对MILP求解的加速效果
-以及DP精确解对最终结果的改善效果
+situation33: 复制32，算法分析
 =#
 using Pkg
 
@@ -20,25 +18,19 @@ using JSON3
 include(joinpath(pwd(), "tools", "plottool.jl"))
 include(joinpath(pwd(), "tools", "ParameterDocGenerator.jl"))
 
-situation = "situation32"
+situation = "situation33"
 file_path0 = joinpath(pwd(), "calculations", situation)
 if !isdir(file_path0)
 	mkdir(file_path0)
 end
 
 # 多参数遍历设置
-heatPumpServiceCoff_list = [0.0,0.1,0.2,0.3,0.4, 0.6, 0.8, 1.0, 1.2]
-heatStorageCapacity_list = [2.0, 3.0, 4.0, 4.5, 5.0,5.5, 6.0, 7.0, 8.0]
-maxheatStorageInputHour_list = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
-
-#=
-heatPumpServiceCoff_list = [0.4]
-heatStorageCapacity_list = [3.0]
-maxheatStorageInputHour_list = [0.5]
-=#
+heatPumpServiceCoff_list = [0.0,0.5,1.0]
+heatStorageCapacity_list = [2.0, 4.0, 6.0, 8.0]
+maxheatStorageInputHour_list = [1.0,2.0, 3.0]
 
 # 继续计算标志：跳过已完成的算例
-continue_calculate = true
+continue_calculate = false
 stage_milp = false
 
 # 预处理：创建文件夹
@@ -94,7 +86,7 @@ begin
 	hourly_tariff_ori[23] *= p	
 
 	baseElectricityPrice = 1.0                     # 计算用基准电价（研究电价影响时按1计算）
-	analysis_base_price = 0.6                   # 绘图用基准电价
+	analysis_base_price = 1.5                   # 绘图用基准电价
 	hourlyTariff = hourly_tariff_ori * baseElectricityPrice
 	# 使用可变热负荷（与situation31一致）
 	heatConsumptionPower = repeat(vcat(
@@ -106,7 +98,7 @@ begin
 	dt = 1.0
 	
 	# 系数
-	y_s6 = 4.0   # 两次s6最小间隔 (h)，0表示无约束
+	y_s6 = 2.0   # 两次s6最小间隔 (h)，0表示无约束
 	maxCOP = 21.0
 	eta_s = 0.7
 	workingStartHour = 0
@@ -320,7 +312,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 			# ========== 阶段1: DP初始解 ==========
 			println("\n---------- 阶段1: DP初始解 ----------")
 			sysVariables = HeatPumpWithStorageSystem.SysVariables(milp_params.heatLoad, milp_params.segmentTariff, 1e-2)
-			dp_params = HeatPumpWithStorageSystem.DP_INITIAL_PARAMS(20, Int(7 / dt), :Exhaustive, dt, y_s6)
+			dp_params = HeatPumpWithStorageSystem.DP_INITIAL_PARAMS(20, Int(5 / dt), :Exhaustive, dt, y_s6)
 
 			initial = nothing
 			initial_cost = 9999.0
@@ -371,7 +363,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 				5,     # 最大局部状态数
 				4.0,   # 初始温度步长 (℃)
 				0.05,   # 最小温度步长 (℃)
-				80,    # 最大迭代次数
+				50,    # 最大迭代次数
 				y_s6,    # y_s6: 两次s6最小间隔 (h)，0表示无约束
 			)
 
@@ -383,12 +375,37 @@ for heatStorageCapacity in heatStorageCapacity_list
 					milp_params,
 					sysVariables_precise,
 					Tair_list,
+					record_history = true,
 				)
 				println("DP精确解收敛: ", precise_solution.converged ? "是" : "否")
 				println("DP精确解成本: ", round(precise_solution.cost, digits = 4))
+				println("DP精确解迭代次数: ", length(precise_solution.history))
 			catch e
 				println("DP精确解求解失败: ", e)
 			end
+			
+			# ========== 阶段3b: 对照实验——无初始化（Ts=Tuse+dTs常数轨线直接多分辨率） ==========
+			println("\n---------- 阶段3b: 对照实验（无初始化，Ts=Tuse+dTs常数轨线） ----------")
+			precise_nostart = nothing
+			
+			try
+				Ts_nostart = fill(milp_params.Tuse + milp_params.dTs, n + 1)  # 常数轨线
+				@time precise_nostart = HeatPumpWithStorageSystem.solvePreciseDP(
+					Ts_nostart,
+					dp_precise_params,
+					designParameters,
+					milp_params,
+					sysVariables_precise,
+					Tair_list,
+					record_history = true,
+				)
+				println("无初始化DP收敛: ", precise_nostart.converged ? "是" : "否")
+				println("无初始化DP成本: ", round(precise_nostart.cost, digits = 4))
+				println("无初始化DP迭代次数: ", length(precise_nostart.history))
+			catch e
+				println("无初始化DP求解失败: ", e)
+			end
+			
 
 			# 经济性参数
 			annualOperationCost = precise_solution.cost * annualDays
@@ -450,6 +467,23 @@ for heatStorageCapacity in heatStorageCapacity_list
 						"P3" => precise_solution.P3,
 						"Pe_l" => precise_solution.Pe_l,
 						"Pe_s" => precise_solution.Pe_s,
+						"n_iter" => length(precise_solution.history),  # 多分辨率迭代次数
+						"history" => precise_solution.history,          # 每轮迭代历史
+					) : nothing,
+				"dp_nostart" =>
+					precise_nostart !== nothing ?
+					Dict(
+						"converged" => precise_nostart.converged,
+						"cost" => precise_nostart.cost,
+						"Ts" => precise_nostart.Ts,
+						"states" => precise_nostart.states,
+						"P1" => precise_nostart.P1,
+						"P2" => precise_nostart.P2,
+						"P3" => precise_nostart.P3,
+						"Pe_l" => precise_nostart.Pe_l,
+						"Pe_s" => precise_nostart.Pe_s,
+						"n_iter" => length(precise_nostart.history),
+						"history" => precise_nostart.history,
 					) : nothing,
 				"economicResults" => Dict(
 					"basePrice" => baseElectricityPrice,   # 计算用基准电价
@@ -483,7 +517,7 @@ begin
 	include(joinpath(pwd(), "tools", "plottool.jl"))
 	# 绘图用的原始电价（未乘以0.7393），用于判断峰谷时段
 	segmentTariff_ori = hourly_tariff_ori[1:end]
-	#=
+
 	# MILP运行结果绘图
 	println("\n--- MILP运行结果绘图 ---")
 	milp_plotted, milp_skipped, milp_failed = batch_plot_operation_results(
@@ -509,7 +543,7 @@ begin
 		output_dir = "initial",
 	)
 	println("DP初始解: 成功=$(init_plotted), 跳过=$(init_skipped), 失败=$(init_failed)")
-	=#
+
 	# DP精确解运行结果绘图
 	println("\n--- DP精确解运行结果绘图 ---")
 	dp_plotted, dp_skipped, dp_failed = batch_plot_operation_results(
@@ -523,11 +557,11 @@ begin
 	)
 	println("DP精确解: 成功=$(dp_plotted), 跳过=$(dp_skipped), 失败=$(dp_failed)")
 end
-=#
+
 
 
 # 各时段能耗模式构成堆叠柱状图（5层：P1/P2/P3/Pe_l/Pe_s）
-#=
+
 begin
 	println("\n--- 各时段能耗模式构成堆叠柱状图 ---")
 	#=
@@ -563,15 +597,15 @@ begin
 
 	println("\n" * "="^60)
 	println("批量绘图完成！")
-#	println("   DP初始解: 成功绘制 $(init_plotted) 张，跳过 $(init_skipped) 张，失败 $(init_failed) 张")
-#	println("   MILP: 成功绘制 $(milp_plotted) 张，跳过 $(milp_skipped) 张，失败 $(milp_failed) 张")
+	println("   DP初始解: 成功绘制 $(init_plotted) 张，跳过 $(init_skipped) 张，失败 $(init_failed) 张")
+	println("   MILP: 成功绘制 $(milp_plotted) 张，跳过 $(milp_skipped) 张，失败 $(milp_failed) 张")
 	println("   DP精确解: 成功绘制 $(dp_plotted) 张，跳过 $(dp_skipped) 张，失败 $(dp_failed) 张")
 	println("="^60)
 end
-=#
+
 
 # ========== 经济性分析绘图 ==========
-#=
+
 begin
 	println("\n" * "="^60)
 	println("开始经济性分析绘图...")
@@ -594,9 +628,7 @@ begin
 	println("\n经济性分析绘图完成！堆叠图 $(num_stacked) 张，对比图 $(num_comparison) 张")
 end
 =#
-
 # 最小总现值包络分析绘图（对电锅炉容量维度取最小）
-
 begin
 	# 输出到 file_path0/optimal_envelope/
 	println("\n--- 最小总现值包络分析绘图 ---")
@@ -610,31 +642,4 @@ begin
 	println("包络分析绘图完成！共 $(num_envelope) 张图")
 end
 
-
-# 基准电价对配置影响分析绘图
-
-analysis_base_price = 0.58:0.02:2.0
-# 基准电价对最优配置影响分析绘图（不同基准电价下，使总现值最小的蓄热容量/热泵容量）
-begin
-	println("\n--- 基准电价对最优配置影响分析绘图 ---")
-	num_price = plot_optimal_capacity_vs_price(
-		file_path0;
-		params_key = "",                   # 参数在JSON顶层
-		econ_key = "economicResults",      # 经济数据在 economicResults
-		base_prices = analysis_base_price, # 基准电价范围
-	)
-	println("基准电价影响分析绘图完成！共 $(num_price) 张图")
-end
-
-# 最优运行成本绘图（横轴=蓄热容量，每条曲线=固定热泵容量，纵轴=最小日运行成本×基准电价）
-begin
-	println("\n--- 最优运行成本绘图 ---")
-	num_oc = plot_optimal_operating_cost(
-		file_path0;
-		params_key = "",                   # 参数在JSON顶层
-		econ_key = "economicResults",      # 经济数据在 economicResults
-		cost_field = "dailyOperationCost", # 每日运行成本
-		base_price = 1.0,                  # 目标基准电价（运行成本=日运行成本×基准电价）
-	)
-	println("最优运行成本绘图完成！共 $(num_oc) 张图")
-end
+include(joinpath(pwd(), "calculations","situation33_summary.jl"))

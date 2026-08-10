@@ -82,6 +82,7 @@ struct DPSolution
 	Pe_s::Vector{Float64}        # 电锅炉储热功率 [nt]
 	cost::Float64                # 总经济成本
 	converged::Bool              # 是否收敛（dT_local <= dT_min）
+	history::Vector{Dict{String, Any}}  # 多分辨率迭代历史（record_history=true时记录）
 end
 
 
@@ -586,13 +587,14 @@ function buildCostTensor_Precise(
 	designParameters::DesignOptimizeParameters, params::MILPModelParameters,
 	sysVariables::SysVariables, Tair_list::Vector{Float64};
 	y_s6::Float64 = 0.0,
+	extra_forbidden::Set{Int} = Set{Int}(),   # 额外禁用的状态（初始解continuous模式传 {7,8} 禁用s7/s8）
 )
 	nT = size(TsMatrix, 1)
 	use_s6_constraint = y_s6 > 0.0
 
 	# 分配成本张量和功率矩阵（统一返回类型，始终分配所有矩阵）
-	Cn = fill(Inf, nt, nT, nT)
-	Cs = fill(Inf, nt, nT, nT)  # 始终分配，未启用时保持 Inf
+	Cn = fill(9999.0, nt, nT, nT)
+	Cs = fill(9999.0, nt, nT, nT)  # 始终分配，未启用时保持 9999.0
 	stateMatrix = zeros(Int, nt, nT, nT)
 	P1sMatrix = zeros(nt, nT, nT)
 	P2sMatrix = zeros(nt, nT, nT)
@@ -624,7 +626,7 @@ function buildCostTensor_Precise(
 				# 成本计算：根据是否启用s6约束决定forbidden_states
 				# - s6约束启用: Cn禁止s6（分离到Cs）
 				# - s6约束禁用: 允许所有状态
-				forbidden = use_s6_constraint ? Set{Int}([6]) : Set{Int}()
+				forbidden = union(use_s6_constraint ? Set{Int}([6]) : Set{Int}(), extra_forbidden)
 				power_cost, state, P1s, P2s, P3s, Pesl, Pess,
 				P1e, P2e, P3e, Peel, Pees, lambda = calculateTransitionCost_continous(
 					Ts_start, Ts_end, designParameters, params,
@@ -654,7 +656,7 @@ function buildCostTensor_Precise(
 					P1e_s6, _, _, Peel_s6, _, lambda_s6 = calculateTransitionCost_continous(
 						Ts_start, Ts_end, designParameters, params,
 						sysVariables, Tair_start, Tair_end, t, dt;
-						forbidden_states = Set{Int}([1, 2, 3, 4, 5, 7, 8]),
+						forbidden_states = union(Set{Int}([1, 2, 3, 4, 5, 7, 8]), extra_forbidden),
 					)
 					if power_cost_s6 <= 9999.0
 						Cs[t, i, j] = power_cost_s6
@@ -711,7 +713,8 @@ function solvePreciseDP(
 	designParameters::DesignOptimizeParameters,
 	params::MILPModelParameters,
 	sysVariables::SysVariables,
-	Tair_list::Vector{Float64},
+	Tair_list::Vector{Float64};
+	record_history::Bool=false,   # 是否记录多分辨率迭代历史（用于算法数值实验）
 )
 	nt = length(TsList_milp) - 1
 	dt = dp_precise_params.dt
@@ -737,7 +740,7 @@ function solvePreciseDP(
 	is_nt_changed = false
 
 	# 记录最优路径信息（存储完整矩阵，便于直接提取功率）
-	best_cost = Inf
+	best_cost = 9999.0
 	best_TsList = copy(TsList_milp)
 	best_TsIndexList = fill(half_nT + 1, nt + 1)
 	best_WaitIndexList = use_s6 ? zeros(Int, nt + 1) : Int[]
@@ -764,6 +767,9 @@ function solvePreciseDP(
 	total_tensor_time = 0.0
 	total_dp_time = 0.0
 
+	# 多分辨率迭代历史记录（record_history=true时使用）
+	history = Dict{String, Any}[]
+
 	while (dT_local > dp_precise_params.dT_min && countAll < dp_precise_params.max_iter)
 		# 1. 构建成本张量（连续COP，存储完整功率矩阵，统一返回类型）
 		tensor_time = @elapsed begin
@@ -779,16 +785,16 @@ function solvePreciseDP(
 		# 2. 乘以电价得经济成本
 		dp_time = @elapsed begin
 			if use_s6
-				Cn_econ = fill(Inf, nt, nT, nT)
-				Cs_econ = fill(Inf, nt, nT, nT)
+				Cn_econ = fill(9999.0, nt, nT, nT)
+				Cs_econ = fill(9999.0, nt, nT, nT)
 				for t in 1:nt
 					price_t = sysVariables.price[t]
 					for i in 1:nT
 						for j in 1:nT
-							if Cn_power[t, i, j] < Inf
+							if Cn_power[t, i, j] < 9999.0
 								Cn_econ[t, i, j] = Cn_power[t, i, j] * price_t * dt
 							end
-							if Cs_power[t, i, j] < Inf
+							if Cs_power[t, i, j] < 9999.0
 								Cs_econ[t, i, j] = Cs_power[t, i, j] * price_t * dt
 							end
 						end
@@ -799,12 +805,12 @@ function solvePreciseDP(
 				cost, TsIndexList, WaitIndexList, best_start_idx, best_wait_idx =
 					DC.GraphLayerSolver(Cn_econ, Cs_econ, nT, nt, dp_precise_params.y_s6, dt)
 			else
-				C_economic = fill(Inf, nt, nT, nT)
+				C_economic = fill(9999.0, nt, nT, nT)
 				for t in 1:nt
 					price_t = sysVariables.price[t]
 					for i in 1:nT
 						for j in 1:nT
-							if Cn_power[t, i, j] < Inf
+							if Cn_power[t, i, j] < 9999.0
 								C_economic[t, i, j] = Cn_power[t, i, j] * price_t * dt
 							end
 						end
@@ -821,6 +827,21 @@ function solvePreciseDP(
 		TsList = [TsMatrix[TsIndexList[j], j] for j in 1:nt+1]
 
 		@info "迭代 $countAll: cost=$(round(cost, digits=4)), dT_local=$(round(dT_local, digits=4)), nT=$nT, 张量耗时=$(round(tensor_time, digits=3))s, DP耗时=$(round(dp_time, digits=3))s"
+
+		# 记录本迭代信息到历史（record_history=true时）
+		if record_history
+			push!(history, Dict{String, Any}(
+				"iter" => countAll,
+				"cost" => cost,                          # 当轮经济成本
+				"best_cost" => best_cost,                # 当前最优成本（含正则，最终统一扣除）
+				"dT_local" => dT_local,                  # 当前温度间隔
+				"nT" => nT,                              # 当前局部状态数
+				"tensor_time" => tensor_time,            # 张量构建耗时 (s)
+				"dp_time" => dp_time,                    # DP求解耗时 (s)
+				"improved" => cost < best_cost,          # 本轮是否改善最优解
+				"Ts" => copy(TsList),                    # 当轮最优温度轨线（本轮DP最优路径）
+			))
+		end
 
 		# 记录最优结果（存储完整矩阵）
 		if cost < best_cost
@@ -901,11 +922,11 @@ function solvePreciseDP(
 	TsIndexList = best_TsIndexList
 
 	states = zeros(Int, nt)
-	P1_list = zeros(nt)
-	P2_list = zeros(nt)
-	P3_list = zeros(nt)
-	Pe_l_list = zeros(nt)
-	Pe_s_list = zeros(nt)
+	P1_list = zeros(Float64, nt)
+	P2_list = zeros(Float64, nt)
+	P3_list = zeros(Float64, nt)
+	Pe_l_list = zeros(Float64, nt)
+	Pe_s_list = zeros(Float64, nt)
 
 	extract_time = @elapsed begin
 		for t in 1:nt
@@ -979,5 +1000,6 @@ function solvePreciseDP(
 		P1_list, P2_list, P3_list,
 		Pe_l_list, Pe_s_list,
 		best_cost, converged,
+		history,
 	)
 end
