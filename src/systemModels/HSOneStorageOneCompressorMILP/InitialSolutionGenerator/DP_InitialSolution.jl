@@ -109,8 +109,8 @@ function get_temperature_state_space(
             sort!(T_state_space[T])
 			T_list = collect(range(Ts_min, T_state_space[T][2], length=n+1))[1:end-1]
 		end
-		push!(T_state_space[T], Ts_max-dTs,T_use-dTs,T_use+dTs)
-		sort!(T_state_space[T])
+		#push!(T_state_space[T], Ts_max,T_use-dTs,T_use+dTs)
+		#sort!(T_state_space[T])
 		idx +=1
     end
 
@@ -1413,7 +1413,7 @@ function generateInitialSolution_DP(dp_params::DP_INITIAL_PARAMS,
         dP_neg,
     )
 
-    return initial_solution, best_cost
+    return initial_solution, best_cost, Ts_list
 end
 
 export DP_INITIAL_PARAMS, generateInitialSolution_DP, get_temperature_state_space

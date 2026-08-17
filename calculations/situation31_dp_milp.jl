@@ -469,7 +469,7 @@ sysVariables = HeatPumpWithStorageSystem.SysVariables(milp_params.heatLoad, milp
 # DP参数: n=温度系数量, q=单位热份数, solver_type=求解器类型, dt=时间步长
 dp_params = HeatPumpWithStorageSystem.DP_INITIAL_PARAMS(10, Int(1/dt), :Exhaustive, 0.5)
 
-initial,initial_cost = generateInitialSolution_DP(dp_params, milp_params, sysVariables)
+initial,initial_cost, Ts_list = generateInitialSolution_DP(dp_params, milp_params, sysVariables)
 
 model = generate_model(PressedWaterOneStorageOneCompressor_MILP(), milp_params)
 set_attribute(model, "TimeLimit", 10)

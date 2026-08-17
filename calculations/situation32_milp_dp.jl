@@ -27,15 +27,16 @@ if !isdir(file_path0)
 end
 
 # 多参数遍历设置
+#=
 heatPumpServiceCoff_list = [0.0,0.1,0.2,0.3,0.4, 0.6, 0.8, 1.0, 1.2]
 heatStorageCapacity_list = [2.0, 3.0, 4.0, 4.5, 5.0,5.5, 6.0, 7.0, 8.0]
 maxheatStorageInputHour_list = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
+=#
 
-#=
 heatPumpServiceCoff_list = [0.4]
 heatStorageCapacity_list = [3.0]
 maxheatStorageInputHour_list = [0.5]
-=#
+
 
 # 继续计算标志：跳过已完成的算例
 continue_calculate = true
@@ -325,7 +326,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 			initial = nothing
 			initial_cost = 9999.0
 			try
-				@time initial, initial_cost = generateInitialSolution_DP(dp_params, milp_params, sysVariables;
+				@time initial, initial_cost, Ts_list = generateInitialSolution_DP(dp_params, milp_params, sysVariables;
 					cop_mode = :continuous, designParameters = designParameters,
 				)
 				println("DP初始解温度: ", round.(initial.Ts[1:min(5, end)], digits = 2), "...")

@@ -317,7 +317,7 @@ for heatStorageCapacity in heatStorageCapacity_list
 			initial = nothing
 			initial_cost = 9999.0
 			try
-				@time initial, initial_cost = generateInitialSolution_DP(dp_params, milp_params, sysVariables;
+				@time initial, initial_cost, Ts_list = generateInitialSolution_DP(dp_params, milp_params, sysVariables;
 					cop_mode = :continuous, designParameters = designParameters,
 				)
 				println("DP初始解温度: ", round.(initial.Ts[1:min(5, end)], digits = 2), "...")
